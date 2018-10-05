@@ -80,7 +80,7 @@ public class MongoApp {
 	
 	
 	// 100K 
-	final static int num_records = 100000;
+	final static int num_records = 1000000;
 	// 10 attributes
 	final static int num_attributes = 10;
 	// prefix
@@ -88,7 +88,7 @@ public class MongoApp {
 	// experiment time
 	final static long EXP_TIME = 2*60*1000;
 	// max value 
-	final static int MAX_VALUE = 10000;
+	final static int MAX_VALUE = 100000;
 	
 	/**
 	 * @param data

@@ -25,6 +25,7 @@ import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 
 import edu.umass.cs.gigapaxos.PaxosConfig;
+import edu.umass.cs.gigapaxos.interfaces.AppRequestParserBytes;
 import edu.umass.cs.gigapaxos.interfaces.Request;
 import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.nio.interfaces.IntegerPacketType;
@@ -40,11 +41,11 @@ import schemes.BasicScheme;
  * @param <V> 
  *
  */
-public class MongoAppClient<V> extends ReconfigurableAppClientAsync<V> {
+public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> implements AppRequestParserBytes{
 
 	private BasicScheme scheme;
 	protected static Map<Integer, String> allServiceNames;
-	private static Map<Integer, List<InetSocketAddress>> allGroups;
+	protected static Map<Integer, List<InetSocketAddress>> allGroups;
 	private static Map<Integer, MongoCollection<Document>> allCollections;
 	private int numPartition;
 	private int numReplica;
@@ -191,7 +192,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<V> {
 	protected String getServiceName(Document bson) {
 		return this.scheme.getServiceName(bson, allServiceNames);
 	}
-	
+
 	protected List<InetSocketAddress> getServiceGroup(Document bson) {
 		return scheme.getServiceGroup(bson, allGroups);
 	}
@@ -243,7 +244,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<V> {
 						
 			int idx = rand.nextInt(numReplica);
 			// send uncoordinated requests to all the groups
-			for ( int i=0; i<numReplica; i++) {
+			for ( int i=0; i<numPartition; i++) {
 				String serviceName = allServiceNames.get(i);
 				List<InetSocketAddress> l = allGroups.get(i);
 				InetSocketAddress addr = l.get(idx);
@@ -272,7 +273,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<V> {
 		} else {
 			// send request directly to the database
 			int idx = rand.nextInt(numReplica);
-			for ( int i=0; i<numReplica; i++) {
+			for ( int i=0; i<numPartition; i++) {
 				MongoCollection<Document> collection = allCollections.get(i*numReplica+idx);
 				Runnable runnable = () -> {
 					MongoCursor<Document> cursor = collection.find(query).iterator(); 							

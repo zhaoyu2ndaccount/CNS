@@ -13,7 +13,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import edu.umass.cs.gigapaxos.interfaces.Request;
+import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.reconfiguration.examples.AppRequest;
+import edu.umass.cs.reconfiguration.reconfigurationpackets.ReplicableClientRequest;
 
 /**
  * @author gaozy
@@ -31,6 +33,16 @@ public class MongoAppSetupClient {
 	
 	
 	private final static Random rand = new Random();
+	
+	private static int sent = 0;
+	synchronized static void incrSent() {
+		sent++;
+	}
+	
+	private static int rcvd = 0;
+	synchronized static void incrRcvd() {
+		rcvd++;
+	}
 	
 	// generate actual subset by index sequence
 	static int[] getSubset(int[] input, int[] subset) {
@@ -112,8 +124,9 @@ public class MongoAppSetupClient {
 			total = num_records;
 		}
 		
+		int num_req = 0;
 		// sequentially insert all the records, impossible to "Too many outstanding requests" exception
-		for (int i=0; i<total; i++) {
+		while ( num_req<total ) {
 			String key = MongoAppClient.getRandomKey(key_length);
 			Document bson = new Document();
 			bson.put(MongoApp.KEYS.KEY.toString(), key);
@@ -123,28 +136,33 @@ public class MongoAppSetupClient {
 			JSONObject json = MongoAppClient.insertRequest(bson);
 			String serviceName = client.getServiceName(bson);
 			
-			/*
 			incrSent();
-			client.sendRequest(new AppRequest(serviceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),					
-					new RequestCallback() {
-				@Override
-				public void handleResponse(Request response) {
-					incrRcvd();
-				}
-			});	
-			*/
 			
+			client.sendRequest(ReplicableClientRequest.wrap(new AppRequest(serviceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false)),					
+					new RequestCallback() {
+					@Override
+					public void handleResponse(Request response) {
+						synchronized (client) {
+							incrRcvd();
+							client.notify();
+						}
+					}
+			});	
+			
+			num_req++;
+			/*
 			Request response = client
 					.sendRequest(new AppRequest(serviceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false));
-			if(i %10000 == 0)
-				System.out.println("Response:"+response);
+					*/
 			
 			bw.write(key+"\n");
-			/*
-			while (received < sent) {
-				Thread.sleep(5);
+			
+			while ( sent - rcvd > 1000) {
+				synchronized(client){
+					client.wait(1000);
+				}
 			}
-			*/
+			
 		}
 				
 		bw.close();

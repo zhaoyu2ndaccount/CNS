@@ -160,6 +160,7 @@ public class MongoDBBenchmark {
 			// System.out.println("QUERY:"+query);
 			
 			long t1 = System.nanoTime();
+//			collection.find(query)
 			MongoCursor<Document> cursor = collection.find(query).batchSize(1000).iterator(); 
 			int cnt = 0;
 			long t2 = System.nanoTime();
