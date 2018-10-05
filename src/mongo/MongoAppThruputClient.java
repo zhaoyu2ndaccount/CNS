@@ -41,7 +41,8 @@ public class MongoAppThruputClient {
 	private final static String ATTR_PREFIX = MongoApp.ATTR_PREFIX;
 	// max value of range of each attribute
 	private final static int max_val = MongoApp.MAX_VALUE;
- 	
+	// max batch number
+	private final static int max_batch = MongoApp.MAX_BATCH_NUM;
 	
 	private static List<String> keys = new ArrayList<String>();
 	
@@ -59,8 +60,7 @@ public class MongoAppThruputClient {
     synchronized  static void incrRcvd() {
         rcvd++;
     }
-
-    
+   
     private static void init(MongoAppClient client) {
 		if (System.getProperty("ratio") != null) {
 			ratio = Double.parseDouble(System.getProperty("ratio"));
@@ -100,7 +100,6 @@ public class MongoAppThruputClient {
     		this.client = client;
     	}
     	
-		@SuppressWarnings("unchecked")
 		@Override
 		public void run() {
 			String key = keys.get(rand.nextInt(keys.size()));
@@ -143,7 +142,6 @@ public class MongoAppThruputClient {
     		this.client = client;
     	}
 
-		@SuppressWarnings("unchecked")
 		@Override
 		public void run() {
 			List<String> givenList = new ArrayList<String>(attributes);
@@ -166,7 +164,11 @@ public class MongoAppThruputClient {
 				bson.put("$lt", end);
 				query.put(attr, bson);
 			}
-			JSONObject reqVal = MongoAppClient.findRequest(query);
+			
+			// Request packet
+			JSONObject reqVal = MongoAppClient.findRequest(query, max_batch);
+			
+			// Send to all partitions in a replica
 			int idx = rand.nextInt(numReplica);
 			for (int i=0; i<numPartition; i++){
 				String serviceName = MongoAppClient.allServiceNames.get(i);

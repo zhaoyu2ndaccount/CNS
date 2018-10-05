@@ -386,6 +386,19 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		return json;		
 	}
 	
+	protected static JSONObject findRequest(BasicDBObject query, int batch) {
+		JSONObject json = new JSONObject();
+		try {
+			json.put(MongoApp.KEYS.TYPE.toString(), MongoApp.FIND_OP.toString());
+			json.put(MongoApp.KEYS.QUERY.toString(), query);
+			json.put(MongoApp.KEYS.PARAM.toString(), batch);
+		} catch (JSONException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}		
+		return json;	
+	}
+	
 	protected static JSONObject insertRequest(Document doc) {
 		JSONObject json = new JSONObject();
 		try {

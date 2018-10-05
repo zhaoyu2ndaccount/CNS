@@ -90,6 +90,9 @@ public class MongoApp {
 	final static long EXP_TIME = 2*60*1000;
 	// max value 
 	final static int MAX_VALUE = 100000;
+	// max number for batch in search query
+	final static int MAX_BATCH_NUM = 1000;
+	
 	
 	/**
 	 * @param data
