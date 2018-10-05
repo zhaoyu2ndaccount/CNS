@@ -1,5 +1,6 @@
 package mongo;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -110,9 +111,12 @@ public class MongoDBServiceApp implements Replicable {
 							System.out.println("Query is:"+query);
 							*/
 							
-							MongoCursor<Document> cursor = this.collection.find(Document.parse(query)).iterator(); 	
-							int count = 0;
+							// batch query up!
+							Integer batch = value.getInt(MongoApp.KEYS.PARAM.toString());
+							MongoCursor<Document> cursor = (batch==null) ? this.collection.find(Document.parse(query)).iterator(): 
+								this.collection.find(Document.parse(query)).batchSize(batch).iterator();
 							
+							int count = 0;							
 							try {
 							    while (cursor.hasNext()) {
 							    	// This is a string
@@ -184,6 +188,22 @@ public class MongoDBServiceApp implements Replicable {
 						collection.createIndexes(list);
 //						System.out.println("Indexes created successfully!");
 						req.setResponse(SUCCESS_MESSAGE);
+						break;
+					case MongoApp.RESTORE_OP:
+						System.out.println(">>>>>>>>>> Ready to restore a collection:"+query);
+						// The path to the dumped DB
+						String path = query;
+						List<String> args = new ArrayList<String>();
+						args.add("mongorestore");
+						args.add(path);
+						ProcessBuilder proc = new ProcessBuilder();
+						try {
+							proc.start();
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+						
 						break;
 					default:
 						// unsupported query

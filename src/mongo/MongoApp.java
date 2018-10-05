@@ -77,6 +77,7 @@ public class MongoApp {
 	final protected static String DELETE_MANY_OP = "delete_many";
 	final protected static String DROP_OP = "drop";
 	final protected static String CREATE_INDEX_OP = "create_index";
+	final protected static String RESTORE_OP = "restore";
 	
 	
 	// 100K 
