@@ -110,9 +110,10 @@ public class MongoDBServiceApp implements Replicable {
 							System.out.println("Type is:"+type);
 							System.out.println("Query is:"+query);
 							*/
-							
+							Integer batch = null;
 							// batch query up!
-							Integer batch = value.getInt(MongoApp.KEYS.PARAM.toString());
+							if (value.has(MongoApp.KEYS.PARAM.toString()))
+								batch = value.getInt(MongoApp.KEYS.PARAM.toString());
 							MongoCursor<Document> cursor = (batch==null) ? this.collection.find(Document.parse(query)).iterator(): 
 								this.collection.find(Document.parse(query)).batchSize(batch).iterator();
 							
@@ -190,20 +191,20 @@ public class MongoDBServiceApp implements Replicable {
 						req.setResponse(SUCCESS_MESSAGE);
 						break;
 					case MongoApp.RESTORE_OP:
+						// FIXME: different instance execute differently as the table name might be different
 						System.out.println(">>>>>>>>>> Ready to restore a collection:"+query);
-						// The path to the dumped DB
-						String path = query;
-						List<String> args = new ArrayList<String>();
-						args.add("mongorestore");
-						args.add(path);
-						ProcessBuilder proc = new ProcessBuilder();
+						// query is the path to the dumped DB
+						String cmd = "mongorestore -d active -c "+ TABLE_NAME + " "+query;
+						
+						// ProcessBuilder proc = new ProcessBuilder(cmd);
 						try {
-							proc.start();
-						} catch (IOException e) {
-							// TODO Auto-generated catch block
+							Process p = Runtime.getRuntime().exec(cmd);
+							p.waitFor();
+						} catch (IOException | InterruptedException e) {
 							e.printStackTrace();
 						}
-						
+						System.out.println(">>>>>>>>>> DB restore is done!");
+						req.setResponse(SUCCESS_MESSAGE);
 						break;
 					default:
 						// unsupported query

@@ -31,7 +31,6 @@ public class MongoAppSetupClient {
 	// max value of range of each attribute
 	private final static int max_val = MongoApp.MAX_VALUE;
 	
-	
 	private final static Random rand = new Random();
 	
 	private static int sent = 0;

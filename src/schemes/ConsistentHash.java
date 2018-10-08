@@ -20,7 +20,6 @@ import mongo.MongoApp;
  */
 public class ConsistentHash extends  BasicScheme {
 	
-//	final String serviceNamePrefix;
 	final int numServiceNames;
 	
 	/**
@@ -29,7 +28,7 @@ public class ConsistentHash extends  BasicScheme {
 	 */
 	public ConsistentHash(int numPartitions, int numReplicas) {
 		super(numPartitions, numReplicas);
-		this.numServiceNames = numPartitions;
+		this.numServiceNames = numReplicas;
 //		serviceNamePrefix = Config.getGlobalString(TC.TEST_GUID_PREFIX);
 //		System.out.println("Service Name Prefix is:"+serviceNamePrefix);
 	}
@@ -81,17 +80,17 @@ public class ConsistentHash extends  BasicScheme {
 			++idx;
 		}
 		
-		int numGroups = numReplica;
+		int numGroups = numPartition;
 		
 		Map<Integer, List<InetSocketAddress>> map = new HashMap<Integer, List<InetSocketAddress>>();
 		for (int i=0; i<numGroups; i++){
-			List<InetSocketAddress> partition = new ArrayList<InetSocketAddress>();
+			List<InetSocketAddress> replica = new ArrayList<InetSocketAddress>();
 			for (int j:servers.keySet()) {
 				if(j%numGroups == i){
-					partition.add(servers.get(j));
+					replica.add(servers.get(j));
 				}
 			}
-			map.put(i, partition);
+			map.put(i, replica);
 		}
 		
 		return map;

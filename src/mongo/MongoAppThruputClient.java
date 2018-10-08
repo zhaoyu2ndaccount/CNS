@@ -225,9 +225,9 @@ public class MongoAppThruputClient {
     			executor.execute(new SearchThread(client));
     		}
     		
-    		while(sent - rcvd < num_outstanding_request_per_client){
+    		while(sent - rcvd >= num_outstanding_request_per_client){
     			synchronized(client){
-    				client.wait(1000);
+    				client.wait(100);
     			}
     		}
     	}
