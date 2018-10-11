@@ -101,23 +101,18 @@ public class MongoDBServiceApp implements Replicable {
 //				System.out.println("Query is:"+query);
 				
 				switch(type){
-					case MongoApp.FIND_OP:
-						JSONArray array = new JSONArray();
-						{
-							/*
-							System.out.println("This is a find request");
-							System.out.println("Value is:"+value);
-							System.out.println("Type is:"+type);
-							System.out.println("Query is:"+query);
-							*/
-							Integer batch = null;
-							// batch query up!
+					case MongoApp.FIND_OP:{
+							JSONArray array = new JSONArray();
+						
+							Integer limit = null;
+							// limit the number of returned records
 							if (value.has(MongoApp.KEYS.PARAM.toString()))
-								batch = value.getInt(MongoApp.KEYS.PARAM.toString());
-							MongoCursor<Document> cursor = (batch==null) ? this.collection.find(Document.parse(query)).iterator(): 
-								this.collection.find(Document.parse(query)).batchSize(batch).iterator();
+								limit = value.getInt(MongoApp.KEYS.PARAM.toString());
 							
-							int count = 0;							
+							MongoCursor<Document> cursor = (limit==null) ? this.collection.find(Document.parse(query)).iterator(): 
+								this.collection.find(Document.parse(query)).limit(limit).iterator();
+							
+							int count = 0;				
 							try {
 							    while (cursor.hasNext()) {
 							    	// This is a string
@@ -129,12 +124,13 @@ public class MongoDBServiceApp implements Replicable {
 							} finally {
 							    cursor.close();
 							}
-							System.out.println("Result set size:"+count);
-						}
-						String resp = array.toString();
+							// System.out.println("Result set size:"+count);
+							
+							String resp = array.toString();
 						
-						// set response
-						req.setResponse(resp);
+							// set response
+							req.setResponse(resp);
+						}
 						break;
 					case MongoApp.REPLACE_ONE_OP:{
 //							System.out.println("This is an update request");
@@ -174,9 +170,19 @@ public class MongoDBServiceApp implements Replicable {
 							req.setResponse(ERROR_MESSAGE);
 						}
 						break;
-					case MongoApp.DROP_OP:
+					case MongoApp.DROP_OP:{
+						/*
+						String cmd = "mongo "+ DB_NAME + " --eval 'db.dropDatabase()'";
+						try {
+							Process p = Runtime.getRuntime().exec(cmd);
+							p.waitFor();
+						} catch (IOException | InterruptedException e) {
+							e.printStackTrace();
+						}
+						*/
 						collection.drop();
 						req.setResponse(SUCCESS_MESSAGE);
+						}	
 						break;
 					case MongoApp.CREATE_INDEX_OP:
 //						System.out.println(">>>>>>>> Ready to create indexes:"+query);

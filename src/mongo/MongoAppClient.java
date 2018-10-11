@@ -43,17 +43,17 @@ import schemes.BasicScheme;
  */
 public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> implements AppRequestParserBytes{
 
-	private BasicScheme scheme;
+	private static BasicScheme scheme;
 	protected static Map<Integer, String> allServiceNames;
 	protected static Map<Integer, List<InetSocketAddress>> allGroups;
 	private static Map<Integer, MongoCollection<Document>> allCollections;
-	private int numPartition;
-	private int numReplica;
-	private String key_filename = "keys.txt";
+	private static int numPartition;
+	private static int numReplica;
+	private static String key_filename = "keys.txt";
 	
 	private static boolean through_paxos = true;
 	
-//	protected Map<Integer, InetSocketAddress> serverMap = new HashMap<Integer, InetSocketAddress>();
+	private static boolean initialized = false;
 	
 	private static final Logger log = Logger
 			.getLogger(ReconfigurableAppClientAsync.class.getName());
@@ -68,22 +68,26 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 	
 	private static int key_length = DEFAULT_KEY_LEN;
 	
-	private static int sent = 0;
-	private static synchronized void incrSent(){
-		sent++;
+	private int total_sent = 0;
+	synchronized void incrTotalSent(int num) {
+		total_sent += num;
 	}
 	
-	private static int received = 0;
-	private static synchronized void incrRcvd() {
-		received ++; 
+	private int total_rcvd = 0;
+	synchronized void incrTotalRcvd(int num) {
+		total_rcvd += num;
 	}
+	
+	private final static int num_outstanding_request_per_client = 4000;
+	synchronized boolean isReady() {
+		return total_rcvd + num_outstanding_request_per_client > total_sent? true:false;
+	}
+	
 	
 	/**
-	 * @throws IOException
+	 * All MongoAppClient share the same configuration
 	 */
-	@SuppressWarnings("resource")
-	public MongoAppClient() throws IOException {
-		super();
+	protected static void init() {
 		// set key length, otherwise key length is DEFAULT_KEY_LEN
 		if(System.getProperty("keyLength") != null){
 			key_length = Integer.valueOf(System.getProperty("keyLength"));
@@ -93,21 +97,21 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 			key_filename = System.getProperty("keyFilename");
 		}
 		
+		if (System.getProperty("paxos") != null) {
+			through_paxos = Boolean.parseBoolean(System.getProperty("paxos"));
+		}
+		
 		numPartition = (System.getProperty("numPartition")!=null)?
 				Integer.valueOf(System.getProperty("numPartition")):DEFAULT_NUM_PARTITION;
 		numReplica = (System.getProperty("numReplica")!=null)?
 				Integer.valueOf(System.getProperty("numReplica")):DEFAULT_NUM_REPLICA;	
-		
+				
 		// set scheme
 		String schemeName = System.getProperty("scheme");
 		if (schemeName == null) {
 			schemeName = DEFAULT_SCHEME_NAME;
 		}
-		
-		if (System.getProperty("paxos") != null) {
-			through_paxos = Boolean.parseBoolean(System.getProperty("paxos"));
-		}
-		
+				
 		// initialize scheme
 		try {			
 			Class<?> c = Class.forName(schemeName);			
@@ -116,7 +120,6 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		} catch (ClassNotFoundException | InstantiationException | IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
 			e.printStackTrace();
 		}
-		
 		
 		// initialize server map
 		allGroups = getGroupForAllServiceNames();
@@ -128,7 +131,9 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		for (int i:allGroups.keySet()) {
 			allServiceNames.put(i, PaxosConfig.getDefaultServiceName()+i);
 			System.out.println("Service name "+i+":"+PaxosConfig.getDefaultServiceName()+i);
-		}		
+		}
+		
+		
 		
 		Map<String, InetSocketAddress> actives = PaxosConfig.getActives();		
 		int num_actives = actives.keySet().size();
@@ -157,9 +162,20 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 			allCollections.put(id, collection);
 			++id;
 		}
+		
+		initialized = true;
 	}
 	
-
+	/**
+	 * @throws IOException
+	 */
+	public MongoAppClient() throws IOException {
+		super();
+		
+		if(!initialized)
+			init();
+	}
+	
 	@Override
 	public Request getRequest(String stringified) throws RequestParseException {
 		try {
@@ -176,8 +192,8 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		return NoopApp.staticGetRequestTypes();
 	}
 	
-	protected String getKeyFilename() {
-		return this.key_filename;		
+	protected static String getKeyFilename() {
+		return key_filename;		
 	}
 	
 	protected static int getKeyLength() {
@@ -185,12 +201,12 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 	}
 	
 	
-	protected Map<Integer, List<InetSocketAddress>> getGroupForAllServiceNames() {		
-		return this.scheme.getGroupForAllServiceNames(numPartition, numReplica, PaxosConfig.getActives());
+	protected static Map<Integer, List<InetSocketAddress>> getGroupForAllServiceNames() {		
+		return scheme.getGroupForAllServiceNames(numPartition, numReplica, PaxosConfig.getActives());
 	}
 	
 	protected String getServiceName(Document bson) {
-		return this.scheme.getServiceName(bson, allServiceNames);
+		return scheme.getServiceName(bson, allServiceNames);
 	}
 
 	protected List<InetSocketAddress> getServiceGroup(Document bson) {
@@ -205,7 +221,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 //			allServiceNames.put(i, PaxosConfig.getDefaultServiceName()+i);
 			
 			if (toSent) {
-				incrSent();
+				incrSent(1);
 				client.sendRequest(new CreateServiceName(PaxosConfig.getDefaultServiceName()+i, 
 						"", initGroup), 
 						new RequestCallback() {
@@ -488,6 +504,17 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		return saltStr;
 	}
 	
+	// For experiment use only
+	private static int sent = 0;
+	private static synchronized void incrSent(int num){
+		sent++;
+	}
+	
+	private static int received = 0;
+	private static synchronized void incrRcvd() {
+		received ++; 
+	}
+	
 	/**
 	 * @param args
 	 * @throws IOException 
@@ -509,7 +536,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 			initGroup.add(servers.get(name));
 		}
 		
-		incrSent();
+		incrSent(1);
 		client.sendRequest(new CreateServiceName(testServiceName, 
 				"", initGroup), 
 				new RequestCallback() {
@@ -548,7 +575,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 		
 		for (int i=0; i<numToSend; i++) {
 			JSONObject json = insertRequest(list.get(i));
-			incrSent();
+			incrSent(1);
 			client.sendRequest(new AppRequest(testServiceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),					
 					new RequestCallback() {
 				long createTime = System.currentTimeMillis();
@@ -574,7 +601,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 			bson.put(MongoApp.KEYS.KEY.toString(), key);
 			bson.put("price", i+10);
 			JSONObject json = replaceRequest(list.get(i), bson);
-			incrSent();
+			incrSent(1);
 			client.sendRequest(new AppRequest(testServiceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),
 					new RequestCallback() {
 				long createTime = System.currentTimeMillis();
@@ -598,7 +625,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
                 new BasicDBObject("$gt", 5));
 		
 		JSONObject json = findRequest(query);
-		incrSent();
+		incrSent(1);
 		client.sendRequest(new AppRequest(testServiceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false), 
 				new RequestCallback() {
 			long createTime = System.currentTimeMillis();

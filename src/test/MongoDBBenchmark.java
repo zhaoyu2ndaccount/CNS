@@ -16,6 +16,8 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 
+import mongo.MongoApp;
+
 /**
  * @author gaozy
  *
@@ -26,14 +28,14 @@ public class MongoDBBenchmark {
 	private static final DecimalFormat df2 = new DecimalFormat( "#.##" );
 	private static int num_records = 100;
 	private final static int num_attributes = 1;
-	private final static int max_val = 10000;
+	private final static int max_val = MongoApp.MAX_VALUE;
 	
 	private final static int total_req = 10000;
 	private final static String ATTR_PREFIX = "a";
 	
 	private final static Random rand = new Random();
 	
-	static private double fraction = 0.001;
+	static private double fraction = 0.00001;
 	
 	private static boolean toInsert = false;
 	private static boolean toClean = false;
@@ -42,47 +44,11 @@ public class MongoDBBenchmark {
 	static synchronized void incr() {
 		rcvd++;
 	}
+	
 	static CopyOnWriteArrayList<Integer> list = new CopyOnWriteArrayList<Integer>();
 	static CopyOnWriteArrayList<Double> latency = new CopyOnWriteArrayList<Double>();
 	static CopyOnWriteArrayList<Double> traverse_lat = new CopyOnWriteArrayList<Double>();
 	
-	private static class QueryRunnable implements Runnable {
-		final MongoCollection collection;
-		
-		QueryRunnable(MongoCollection collection) {
-			this.collection = collection;
-		}
-
-		@Override
-		public void run() {
-			BasicDBObject query = new BasicDBObject();
-			double drift = max_val*fraction;
-			BasicDBObject bson = new BasicDBObject();
-			double start = rand.nextDouble()+rand.nextInt(max_val);
-			double end = start + drift;
-			bson.put("$gte", start);
-			bson.put("$lt", end);
-			query.put(ATTR_PREFIX+rand.nextInt(num_attributes), bson);
-			
-			long t = System.nanoTime();
-			MongoCursor<Document> cursor = collection.find(query).iterator(); 
-			int cnt = 0;
-			try {
-			    while (cursor.hasNext()) {
-			    	// This is a string
-			    	cursor.next();
-			    	cnt++;
-			    }
-			} finally {
-			    cursor.close();
-			}
-			long elapsed = System.nanoTime() - t;
-			incr();
-			list.add(cnt);
-			latency.add(elapsed/1000.0);
-		}
-		
-	}
 	
 	/**
 	 * @param args
@@ -90,7 +56,7 @@ public class MongoDBBenchmark {
 	 */
 	public static void main(String[] args) throws InterruptedException {
 		if(args.length == 0){
-			System.out.println("Please provide the host name.");
+			System.out.println("Please provide the host name and collection name.");
 			System.exit(0);
 		}
 		
@@ -110,7 +76,7 @@ public class MongoDBBenchmark {
 			fraction = Double.parseDouble(System.getProperty("frac"));
 		}
 			
-		String collection_name = "test_"+num_records/10000;
+		String collection_name = args[1]; //"test_"+num_records/10000;
 		
 		String host = args[0];
 		int port = 27017;
@@ -176,7 +142,7 @@ public class MongoDBBenchmark {
 			long elapsed = System.nanoTime() - t2;
 			traverse_lat.add(elapsed/1000.0);
 			elapsed = System.nanoTime() - t1;
-			// System.out.println("Total:"+cnt+",elapsed:"+elapsed+"us");
+			System.out.println("Total:"+cnt+",elapsed:"+elapsed+"us");
 			incr();
 			list.add(cnt);
 			latency.add(elapsed/1000.0);
@@ -226,6 +192,12 @@ public class MongoDBBenchmark {
 			ave += lat;
 		}
 		System.out.println("Traverse latency is "+df2.format(ave/total_req)+"us");
+		
+		int num_records = 0;
+		for (int r:list){
+			num_records += r;
+		}
+		System.out.println("Average resultset size is:"+num_records/total_req);
 		
 		if(toClean)
 			collection.drop();

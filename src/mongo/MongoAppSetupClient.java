@@ -171,18 +171,7 @@ public class MongoAppSetupClient {
 		
 		// Setup index
 		JSONArray json_arr = new JSONArray();
-		for (int i=0; i<num_attributes; i++){	
-			/* 
-			List<int[]> result = genertateComb(num_attributes, i);
-			for (int[] comb: result) {
-				Document doc = new Document();
-				for (int j=0; j<comb.length; j++) {
-					// incremental order
-					doc.put(ATTR_PREFIX+comb[j], 1);
-				}
-				json_arr.put(doc.toJson());
-			}
-			*/
+		for (int i=0; i<num_attributes; i++){
 			Document doc = new Document();
 			// incremental order
 			doc.put(ATTR_PREFIX+i, 1);

@@ -8,8 +8,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bson.Document;
 import org.json.JSONObject;
@@ -19,6 +21,7 @@ import com.mongodb.BasicDBObject;
 import edu.umass.cs.gigapaxos.interfaces.Request;
 import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.reconfiguration.examples.AppRequest;
+import edu.umass.cs.utils.DelayProfiler;
 
 
 /**
@@ -27,14 +30,12 @@ import edu.umass.cs.reconfiguration.examples.AppRequest;
  */
 public class MongoAppThruputClient {
 
-    private final static int num_outstanding_request_per_client = 8192;
-    
  	private static Random rand = new Random();
-	
+
 	private static double ratio = 0.0;
-	
-	private static double fraction = 0.1;
-	
+
+	private static double fraction = 0.00001;
+
 	// 10 attributes
 	private final static int num_attributes = MongoApp.num_attributes;
 	// prefix
@@ -48,20 +49,23 @@ public class MongoAppThruputClient {
 	
 	private static List<String> attributes = new ArrayList<String>();
 	
+	private static int num_clients = 10;
+	
 	private static int numReplica;
 	private static int numPartition;
-	
-    private static int sent = 0;    
-    synchronized static void incrSent() {
-    	sent++;
+    
+    // private static int num_updates = 0;
+    private static int req_id = 0;
+    synchronized static int getReqId() {
+    	return req_id++;
     }
-
-    private static int rcvd = 0;
-    synchronized  static void incrRcvd() {
-        rcvd++;
-    }
-   
-    private static void init(MongoAppClient client) {
+    
+    private static ConcurrentHashMap <Integer, Integer> requests = new ConcurrentHashMap<Integer, Integer>();    
+    
+    private static AtomicInteger num_updates = new AtomicInteger();
+    private static AtomicInteger num_searches = new AtomicInteger();
+    
+    private static void init(MongoAppClient[] clients, int num_clients) {
 		if (System.getProperty("ratio") != null) {
 			ratio = Double.parseDouble(System.getProperty("ratio"));
 		}
@@ -70,7 +74,7 @@ public class MongoAppThruputClient {
 			fraction = Double.parseDouble(System.getProperty("frac"));
 		}
 		
-		String fileName = client.getKeyFilename();
+		String fileName = MongoAppClient.getKeyFilename();
 		
 		try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
 		    String line;
@@ -91,6 +95,15 @@ public class MongoAppThruputClient {
 				Integer.valueOf(System.getProperty("numReplica")) : 1;	
 		numPartition = (System.getProperty("numPartition")!=null)?
 				Integer.valueOf(System.getProperty("numPartition")): 1;
+				
+		for (int i=0; i<num_clients; i++) {
+			try {
+				clients[i] = new MongoAppClient();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
 	}
     
     private static class UpdateThread implements Runnable {
@@ -112,9 +125,10 @@ public class MongoAppThruputClient {
 			}
 			
 			JSONObject req = MongoAppClient.replaceRequest(oldVal, newVal);
+			int req_id = getReqId();
+			requests.put(req_id, 1);
 			
 			String serviceName = client.getServiceName(oldVal);
-			incrSent();
 			
 			try {
 				client.sendRequest(new AppRequest(serviceName, req.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),
@@ -122,8 +136,10 @@ public class MongoAppThruputClient {
 					@Override
 					public void handleResponse(Request response) {
 						synchronized (client) {
-							incrRcvd();
-							client.notify();
+							requests.remove(req_id);
+							num_updates.incrementAndGet();
+							client.incrTotalRcvd(1);
+							client.notifyAll();
 						}
 					}
 				});
@@ -148,7 +164,7 @@ public class MongoAppThruputClient {
 			Collections.shuffle(givenList);
 			
 			// select only one attribute
-			int num_selected_attr = rand.nextInt(num_attributes)+1;
+			int num_selected_attr = 1; //rand.nextInt(num_attributes)+1;
 			List<String> attr_selected = givenList.subList(0, num_selected_attr);
 			
 			// int drift = (int) (2*Math.round(max_val*Math.pow(fraction, 1.0/num_selected_attr)));
@@ -167,8 +183,11 @@ public class MongoAppThruputClient {
 			
 			// Request packet
 			JSONObject reqVal = MongoAppClient.findRequest(query, max_batch);
+			int req_id = getReqId();
+			requests.put(req_id, numPartition);
 			
 			// Send to all partitions in a replica
+			long start = System.currentTimeMillis();
 			int idx = rand.nextInt(numReplica);
 			for (int i=0; i<numPartition; i++){
 				String serviceName = MongoAppClient.allServiceNames.get(i);
@@ -177,18 +196,27 @@ public class MongoAppThruputClient {
 				AppRequest request = new AppRequest(serviceName, reqVal.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
 				request.setNeedsCoordination(false);
 				
-				incrSent();
-				try {
+				try {				
 					client.sendRequest(request, addr,
 							new RequestCallback() {
 						@Override
 						public void handleResponse(Request response) {
 							synchronized (client) {
-								incrRcvd();
-								client.notify();
+								int left = requests.get(req_id);
+								left--;
+								if(left == 0){
+									DelayProfiler.updateDelay("latency", start);
+									requests.remove(req_id);
+									num_searches.incrementAndGet(); 
+								} else {
+									requests.put(req_id, left);
+								}
+								client.incrTotalRcvd(1);
+								client.notifyAll();
 							}
 						}
 					});
+					
 				} catch (IOException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
@@ -206,35 +234,53 @@ public class MongoAppThruputClient {
      * @throws InterruptedException 
      */
     public static void main(String[] args) throws IOException, InterruptedException {
-    	MongoAppClient<String> client = new MongoAppClient<String>();
+    	MongoAppClient[] clients = new MongoAppClient[num_clients];
 		
+    	init(clients, num_clients);
+    	
 		// Create all service names
-		MongoAppClient.createAllGroups(client, false);		
-		// Thread.sleep(2000);
+		MongoAppClient.createAllGroups(clients[0], false);		
+		// Thread.sleep(2000);		
 		
-		init(client);
-		
-    	ExecutorService executor = Executors.newFixedThreadPool(1);
+    	ExecutorService executor = Executors.newFixedThreadPool(100);
 
     	long begin = System.currentTimeMillis();
 		long stop = begin + MongoApp.EXP_TIME;
+		
+		int cnt = 0;
     	while ( System.currentTimeMillis() < stop ) {
-    		if(rand.nextDouble() < ratio){
+    		MongoAppClient client = clients[cnt % num_clients];
+    		
+    		while(!client.isReady()){
+				synchronized(client){
+					try {
+						client.wait(100);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+			}		
+    		
+    		if(rand.nextDouble() < ratio){ 
+    			client.incrTotalSent(1);
     			executor.execute(new UpdateThread(client));
     		} else {
+    			client.incrTotalSent(numPartition);
     			executor.execute(new SearchThread(client));
     		}
     		
-    		while(sent - rcvd >= num_outstanding_request_per_client){
-    			synchronized(client){
-    				client.wait(100);
-    			}
-    		}
+    		cnt++;		
     	}
     	
     	System.out.println("Elapsed: "+(System.currentTimeMillis()-begin)/1000.0+"");
-		System.out.println("Thruput: "+rcvd*1000.0/(MongoApp.EXP_TIME));
+		System.out.println("Thruput: "+(num_searches.get()+num_updates.get())*1000.0/(MongoApp.EXP_TIME));
+		System.out.println("DELAY:"+DelayProfiler.getStats());
 		
-		client.close();
+		
+		for (int i=0; i<num_clients; i++){
+			clients[i].close();
+		}
+		executor.shutdown();
     }
 }
