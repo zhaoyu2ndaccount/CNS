@@ -5,7 +5,7 @@ folder=result
 attributes=10
 num=1
 coordinator=node-0
-num_rounds=1
+num_rounds=3
 num_records=10000000
 # fraction
 frac=`python -c "print '{0:.6f}'.format(50.0/$num_records)"`
@@ -40,7 +40,7 @@ do
 	# put records
 	echo 4. Restore data from /proj/anolis-PG0/groups, get keys.txt file from /proj/anolis-PG0/groups, 
 	java -ea -cp ./CNS/jar/CNS.jar -Djava.util.logging.config.file=conf/logging.properties -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=mongo-$total.properties -DnumPartition=$num -DnumReplica=$num -Dnum_records mongo.MongoAppImportDBClient
-	# sleep 900
+	sleep 5
 	# java -ea -cp ./CNS/jar/CNS.jar -Djava.util.logging.config.file=conf/logging.properties -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=mongo-$total.properties -DnumPartition=$num -DnumReplica=$num -Dnum_records=$num_records mongo.MongoAppSetupClient
 	echo Database has been restored!
 	cp /proj/anolis-PG0/groups/$num-partition/keys.txt .

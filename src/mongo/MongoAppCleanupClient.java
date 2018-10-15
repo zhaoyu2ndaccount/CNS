@@ -25,8 +25,6 @@ import edu.umass.cs.reconfiguration.examples.AppRequest;
 public class MongoAppCleanupClient {
 	private static Random rand = new Random();
 	
-	private static double ratio = 0.0;
-	
 	private static double fraction = 0.1;
 	
 	private final static int max_val = MongoApp.MAX_VALUE;
@@ -52,7 +50,7 @@ public class MongoAppCleanupClient {
 			fraction = Double.parseDouble(System.getProperty("frac"));
 		}
 		
-		MongoAppClient<String> client = new MongoAppClient<String>();
+		MongoAppClient client = new MongoAppClient();
 		
 		if(toTest){
 			MongoAppClient.createAllGroups(client, false);

@@ -86,8 +86,15 @@ public class MongoApp {
 	final static int num_attributes = 10;
 	// prefix
 	final static String ATTR_PREFIX = "a";
-	// experiment time
-	final static long EXP_TIME = 2*60*1000;	
+	// experiment time: 20s
+	final static long EXP_WAIT_TIME = 20*1000;
+	// total number of requests to send
+	final static int TOTAL_REQS = 400000;
+	
+	final static long EXP_TIME = 2*60*1000;
+	final static int PROBE_RUN_DURATION = 10;
+	final static double PROBE_RESPONSE_THRESHOLD = 0.9;
+	final static double PROBE_LOAD_INCREASE_FACTOR = 1.1;
 	/**
 	 * max value of each attribute
 	 */

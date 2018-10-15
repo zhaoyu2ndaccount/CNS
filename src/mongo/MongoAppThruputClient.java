@@ -49,7 +49,7 @@ public class MongoAppThruputClient {
 	
 	private static List<String> attributes = new ArrayList<String>();
 	
-	private static int num_clients = 10;
+	private static int num_clients = 20;
 	
 	private static int numReplica;
 	private static int numPartition;

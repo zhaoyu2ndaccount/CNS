@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bson.Document;
 import org.json.JSONArray;
@@ -44,7 +45,7 @@ public class MongoDBServiceApp implements Replicable {
 	private final String ERROR_MESSAGE;
 	private final String SUCCESS_MESSAGE;
 	
-	
+	private static AtomicInteger total = new AtomicInteger();
 	private MongoClient mongoClient;
 	private MongoCollection collection;
 	
@@ -124,16 +125,16 @@ public class MongoDBServiceApp implements Replicable {
 							} finally {
 							    cursor.close();
 							}
-							// System.out.println("Result set size:"+count);
+							// System.out.println("Result set size:"+count+","+total.incrementAndGet()+" done!");
 							
-							String resp = array.toString();
-						
+							// String resp = array.toString();
+
 							// set response
-							req.setResponse(resp);
+							req.setResponse(array.toString());
 						}
 						break;
 					case MongoApp.REPLACE_ONE_OP:{
-//							System.out.println("This is an update request");
+							// System.out.println("This is an update request");
 							
 							// To update, we need to get another parameter
 							String param = value.getString(MongoApp.KEYS.PARAM.toString());

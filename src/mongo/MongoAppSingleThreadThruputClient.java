@@ -56,7 +56,7 @@ public class MongoAppSingleThreadThruputClient {
 	public static void main(String[] args) throws IOException, InterruptedException {
 		
 		
-		MongoAppClient<String> client = new MongoAppClient<String>();
+		MongoAppClient client = new MongoAppClient();
 		
 		// Create all service names
 		MongoAppClient.createAllGroups(client, false);		
@@ -64,7 +64,7 @@ public class MongoAppSingleThreadThruputClient {
 		
 		init();
 		
-		String fileName = client.getKeyFilename();
+		String fileName = MongoAppClient.getKeyFilename();
 		
 		List<String> keys = new ArrayList<String>();
 		try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {

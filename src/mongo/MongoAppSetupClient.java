@@ -99,7 +99,7 @@ public class MongoAppSetupClient {
 		// List<int[]> result = genertateComb(num_attributes, 1);
 		// System.exit(0);
         
-		MongoAppClient<String> client = new MongoAppClient<String>();
+		MongoAppClient client = new MongoAppClient();
 		
 		// Create all service names
 		MongoAppClient.createAllGroups(client, true);
@@ -112,7 +112,7 @@ public class MongoAppSetupClient {
 		// It takes a few seconds to initialize all groups
 		Thread.sleep(numReplica*2000);
 		
-		FileWriter fw = new FileWriter(client.getKeyFilename());
+		FileWriter fw = new FileWriter(MongoAppClient.getKeyFilename());
 		BufferedWriter bw = new BufferedWriter(fw);
 		int key_length = MongoAppClient.getKeyLength();
 		

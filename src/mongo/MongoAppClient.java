@@ -38,10 +38,10 @@ import schemes.BasicScheme;
 
 /**
  * @author gaozy
- * @param <V> 
  *
  */
-public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> implements AppRequestParserBytes{
+@SuppressWarnings("rawtypes")
+public class MongoAppClient extends ReconfigurableAppClientAsync implements AppRequestParserBytes{
 
 	private static BasicScheme scheme;
 	protected static Map<Integer, String> allServiceNames;
@@ -520,7 +520,7 @@ public class MongoAppClient<V> extends ReconfigurableAppClientAsync<Request> imp
 	 * @throws IOException 
 	 * @throws InterruptedException 
 	 */
-	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@SuppressWarnings({ "unchecked" })
 	public static void main(String[] args) throws IOException, InterruptedException {
 		System.out.println("Client starts");
 		MongoAppClient client = new MongoAppClient();

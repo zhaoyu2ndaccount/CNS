@@ -4,8 +4,11 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 
+import org.bson.Document;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import edu.umass.cs.gigapaxos.PaxosConfig;
 import edu.umass.cs.gigapaxos.interfaces.Request;
 import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.reconfiguration.examples.AppRequest;
@@ -29,7 +32,7 @@ public class MongoAppImportDBClient {
 	 */
 	public static void main(String[] args) throws IOException, InterruptedException {
         
-		MongoAppClient<String> client = new MongoAppClient<String>();
+		MongoAppClient client = new MongoAppClient();
 
 		int numReplica = 1;
 		if(System.getProperty("numReplica") != null){
@@ -72,10 +75,22 @@ public class MongoAppImportDBClient {
 					}
 				});	
 			}
-		}
+		}		
 		
 		while (rcvd < total){
 			Thread.sleep(500);
+		}
+		
+		// create key index for update
+		JSONArray json_arr = new JSONArray();
+		Document doc = new Document();
+		doc.put(MongoApp.KEYS.KEY.toString(), 1);
+		json_arr.put(doc.toJson());
+		JSONObject json = MongoAppClient.indexRequest(json_arr);
+		for (int i=0; i<numPartition; i++) {
+			String serviceName = MongoAppClient.allServiceNames.get(i);
+			AppRequest request = new AppRequest(serviceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
+			client.sendRequest(request);
 		}
 		
 		client.close();
