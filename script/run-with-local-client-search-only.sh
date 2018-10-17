@@ -11,7 +11,7 @@ num_records=10000000
 frac=`python -c "print '{0:.6f}'.format(50.0/$num_records)"`
 # ./setup.sh cl_ssh
 
-for n in {1..5}
+for n in {1..1}
 do	
 	echo number of replica: $num
 	echo number of partition: $num
@@ -56,7 +56,8 @@ do
 		date
 		for i in $(seq 1 $num_clients)
 		do
-			java -ea -cp ./CNS/jar/CNS.jar -Djava.util.logging.config.file=conf/logging.properties -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=mongo-$total.properties -DnumPartition=$num -DnumReplica=$num -Dratio=0.0 -Dfrac=$frac mongo.MongoAppThruputClient &> $folder/$frac/round-$k-client-$i.log 
+			# java -ea -cp ./CNS/jar/CNS.jar -Djava.util.logging.config.file=conf/logging.properties -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=mongo-$total.properties -DnumPartition=$num -DnumReplica=$num -Dratio=0.0 -Dfrac=$frac mongo.MongoAppThruputClient &> $folder/$frac/round-$k-client-$i.log 
+			java -ea -cp ./CNS/jar/CNS.jar -Djava.util.logging.config.file=conf/logging.properties -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=mongo-$total.properties -DnumPartition=$num -DnumReplica=$num -Dratio=0.0 -Dfrac=$frac mongo.MongoAppCapacityProbingClient &> $folder/$frac/round-$k-client-$i.log
 			# :taskset -cp $((($i-1)*4))-$((($i-1)*4+3)) $! > /dev/null
 		done
 		sleep 20

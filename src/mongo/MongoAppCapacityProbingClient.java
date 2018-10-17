@@ -21,10 +21,7 @@ import com.mongodb.BasicDBObject;
 import edu.umass.cs.gigapaxos.interfaces.Request;
 import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.gigapaxos.paxosutil.RateLimiter;
-import edu.umass.cs.gigapaxos.testing.TESTPaxosClient;
-import edu.umass.cs.gigapaxos.testing.TESTPaxosConfig.TC;
 import edu.umass.cs.reconfiguration.examples.AppRequest;
-import edu.umass.cs.utils.Config;
 import edu.umass.cs.utils.Util;
 
 
@@ -136,7 +133,9 @@ public class MongoAppCapacityProbingClient {
 					new RequestCallback() {
 				@Override
 				public void handleResponse(Request response) {
+					lastResponseReceivedTime = System.currentTimeMillis();
 					num_updates.incrementAndGet();
+					
 				}
 			});
 			
@@ -188,6 +187,7 @@ public class MongoAppCapacityProbingClient {
 						new RequestCallback() {
 					@Override
 					public void handleResponse(Request response) {
+						lastResponseReceivedTime = System.currentTimeMillis();
 						num_searches.incrementAndGet();
 					}
 				});
@@ -203,9 +203,9 @@ public class MongoAppCapacityProbingClient {
     
     
     private static void sendRequests(int numReqs,
-			MongoAppClient[] clients, boolean warmup, double rate) {
+			MongoAppClient[] clients, boolean searchOnly, double rate) {
     	RateLimiter rateLimiter = new RateLimiter(rate);
-    	if(warmup){
+    	if(searchOnly){
     		// only send search for warmup requests	    	
 	    	for (int i = 0; i < numReqs; i++) {
 				sendSearchRequest( clients[i % num_clients] );
@@ -217,11 +217,12 @@ public class MongoAppCapacityProbingClient {
     				sendUpdateRequest( clients[i % num_clients]);
     			else
     				sendSearchRequest( clients[i % num_clients]);
+    			rateLimiter.record();
     		}
     	}
     }
     
-    protected static void waitForResponses(MongoAppClient[] clients,
+    protected static boolean waitForResponses(MongoAppClient[] clients,
 			long startTime, int numRequests) {
     	// wait for EXP_WAIT_TIME if 99.9% requests not coming back
     	while(System.currentTimeMillis() - startTime < MongoApp.EXP_WAIT_TIME 
@@ -234,14 +235,18 @@ public class MongoAppCapacityProbingClient {
 				e.printStackTrace();
 			}
     	}
+    	if ((num_searches.get()/numPartition + num_updates.get() ) < numRequests*0.999)
+    		return false;
+    	return true;
     }
     
-    private static void startProbing(double load, MongoAppClient[] clients) throws InterruptedException {
+    private static double startProbing(double load, MongoAppClient[] clients) throws InterruptedException {
     	long runDuration = MongoApp.PROBE_RUN_DURATION; // seconds
 		double responseRate = 0, capacity = 0, latency = Double.MAX_VALUE;
 		double threshold = MongoApp.PROBE_RESPONSE_THRESHOLD;
 		double loadIncreaseFactor = MongoApp.PROBE_LOAD_INCREASE_FACTOR, minLoadIncreaseFactor = 1.01;
 		int runs = 0, consecutiveFailures = 0;
+		double realCapacity = 0;
 		
 		do {
 			if (runs++ > 0)
@@ -273,32 +278,35 @@ public class MongoAppCapacityProbingClient {
 			sendRequests(numRunRequests, clients, false, load);
 
 			// no need to wait for all responses
-			while (num_searches.get() + num_updates.get() < threshold * numRunRequests)
+			while (num_searches.get()/numPartition + num_updates.get() < threshold * numRunRequests)
 				Thread.sleep(500);
 			
-			int numResponses = num_searches.get() + num_updates.get();
+			int numResponses = num_searches.get()/numPartition + num_updates.get();
+			System.out.println("Number of responses:"+numResponses+", search:"+num_searches.get()+", update:"+num_updates.get());
 			
 			responseRate = // numRunRequests
 			numResponses * 1000.0 / (lastResponseReceivedTime - t1);
 			
 			latency =  totalLatency.get() * 1.0 / numResponses;
 			
-			if (latency < Config.getGlobalLong(TC.PROBE_LATENCY_THRESHOLD))
+			if (latency < MongoApp.PROBE_LATENCY_THRESHOLD)
 				capacity = Math.max(capacity, responseRate);
-			boolean success = (responseRate > threshold * load && latency <= Config
-					.getGlobalLong(TC.PROBE_LATENCY_THRESHOLD));
+			boolean success = (responseRate > threshold * load && 
+					latency <= MongoApp.PROBE_LATENCY_THRESHOLD);
 			System.out.println("capacity >= " + Util.df(capacity)
 					+ "/s; (response_rate=" + Util.df(responseRate)
 					+ "/s, average_response_time=" + Util.df(latency) + "ms)"
 					+ (!success ? "    !!!!!!!!FAILED!!!!!!!!" : ""));
 			Thread.sleep(2000);
-			if (success)
+			if (success){
 				consecutiveFailures = 0;
-			else
-				consecutiveFailures++;
-			
-			
-		} while (consecutiveFailures < 3 && runs < 50); 
+				realCapacity = capacity;
+			}
+			else{
+				consecutiveFailures++;	
+				Thread.sleep(2000);
+			}
+		} while (consecutiveFailures < MongoApp.MAX_CONSECURIVE_FAILURES && runs < MongoApp.MAX_RUN_ATTEMPTS); 
 		
 		System.out
 		.println("capacity <= "
@@ -307,26 +315,25 @@ public class MongoAppCapacityProbingClient {
 				+ (capacity < threshold * load ? " response_rate was less than 95% of injected load"
 						+ Util.df(load) + "/s; "
 						: "")
-				+ (latency > Config
-						.getGlobalLong(TC.PROBE_LATENCY_THRESHOLD) ? " average_response_time="
+				+ (latency > MongoApp.PROBE_LATENCY_THRESHOLD ? " average_response_time="
 						+ Util.df(latency)
 						+ "ms"
 						+ " >= "
-						+ Config.getGlobalLong(TC.PROBE_LATENCY_THRESHOLD)
+						+ MongoApp.PROBE_LATENCY_THRESHOLD
 						+ "ms;"
 						: "")
 				+ (loadIncreaseFactor < minLoadIncreaseFactor ? " capacity is within "
 						+ Util.df((minLoadIncreaseFactor - 1) * 100)
 						+ "% of next probe load level;"
 						: "")
-				+ (consecutiveFailures > Config
-						.getGlobalInt(TC.PROBE_MAX_CONSECUTIVE_FAILURES) ? " too many consecutive failures;"
+				+ (consecutiveFailures > MongoApp.MAX_CONSECURIVE_FAILURES ? " too many consecutive failures;"
 						: "")
-				+ (runs >= Config.getGlobalInt(TC.PROBE_MAX_RUNS) ? " reached limit of "
-						+ Config.getGlobalInt(TC.PROBE_MAX_RUNS)
+				+ (runs >= MongoApp.MAX_RUN_ATTEMPTS ? " reached limit of "
+						+  MongoApp.MAX_RUN_ATTEMPTS
 						+ " runs;"
 						: ""));
-		
+		return realCapacity;
+				
     }
     
     /**
@@ -350,14 +357,17 @@ public class MongoAppCapacityProbingClient {
 		int numWarmupRequests = Math.min(total_reqs, 10 * num_clients);
 		sendRequests(numWarmupRequests, clients, true,
 				10 * num_clients);
-		waitForResponses(clients, t1, numWarmupRequests);
+		boolean success = waitForResponses(clients, t1, numWarmupRequests);
 		System.out.println("[success]");		
 		// end warmup run
 		
+		int probing_start_point = 1000 * numPartition;
+		
 		// begin probing
-		startProbing(1000, clients);
+		double responseRate = startProbing(probing_start_point, clients);
 		// end probing
-				
+		System.out.println("Thruput: "+Util.df(responseRate));
+		
 		for (int i=0; i<num_clients; i++){
 			clients[i].close();
 		}

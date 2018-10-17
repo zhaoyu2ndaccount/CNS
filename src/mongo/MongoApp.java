@@ -92,9 +92,15 @@ public class MongoApp {
 	final static int TOTAL_REQS = 400000;
 	
 	final static long EXP_TIME = 2*60*1000;
+	
+	// probe related parameters
 	final static int PROBE_RUN_DURATION = 10;
 	final static double PROBE_RESPONSE_THRESHOLD = 0.9;
 	final static double PROBE_LOAD_INCREASE_FACTOR = 1.1;
+	final static double PROBE_LATENCY_THRESHOLD = 10000;
+	final static int MAX_CONSECURIVE_FAILURES = 3;
+	final static int MAX_RUN_ATTEMPTS = 50;
+	
 	/**
 	 * max value of each attribute
 	 */
