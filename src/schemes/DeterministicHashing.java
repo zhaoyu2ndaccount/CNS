@@ -2,6 +2,7 @@ package schemes;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +19,7 @@ import mongo.MongoApp;
  * @author gaozy
  *
  */
-public class ConsistentHash extends  BasicScheme {
+public class DeterministicHashing extends BasicScheme {
 	
 	final int numServiceNames;
 	
@@ -26,9 +27,9 @@ public class ConsistentHash extends  BasicScheme {
 	 * @param numPartitions 
 	 * @param numReplicas
 	 */
-	public ConsistentHash(int numPartitions, int numReplicas) {
+	public DeterministicHashing(int numPartitions, int numReplicas) {
 		super(numPartitions, numReplicas);
-		this.numServiceNames = numReplicas;
+		this.numServiceNames = numPartitions;
 //		serviceNamePrefix = Config.getGlobalString(TC.TEST_GUID_PREFIX);
 //		System.out.println("Service Name Prefix is:"+serviceNamePrefix);
 	}
@@ -66,7 +67,7 @@ public class ConsistentHash extends  BasicScheme {
 		byte[] b = key.getBytes();
 		int retval = b.hashCode();
 		
-		return map.get(retval % this.numServiceNames);
+		return map.get(retval % numServiceNames);
 	}
 	
 	@Override
@@ -74,19 +75,20 @@ public class ConsistentHash extends  BasicScheme {
 			Map<String, InetSocketAddress> actives) {
 		Map<Integer, InetSocketAddress> servers = new HashMap<Integer, InetSocketAddress>();
 		int idx = 0;
-		for (String name: actives.keySet()){
+		List<String> names = new ArrayList<String>(actives.keySet());
+		Collections.sort(names);
+		for ( int i=0; i<names.size(); i++){
+			String name = names.get(i);
 			System.out.println("Active:"+name+","+actives.get(name));
 			servers.put(idx, actives.get(name));
 			++idx;
 		}
 		
-		int numGroups = numPartition;
-		
 		Map<Integer, List<InetSocketAddress>> map = new HashMap<Integer, List<InetSocketAddress>>();
-		for (int i=0; i<numGroups; i++){
+		for (int i=0; i<numPartition; i++){
 			List<InetSocketAddress> replica = new ArrayList<InetSocketAddress>();
 			for (int j:servers.keySet()) {
-				if(j%numGroups == i){
+				if(j%numPartition == i){
 					replica.add(servers.get(j));
 				}
 			}
@@ -96,4 +98,19 @@ public class ConsistentHash extends  BasicScheme {
 		return map;
 	}
 	
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		
+		for (int i=4; i<6; i++) {
+			Map<String, InetSocketAddress> actives = new HashMap<>();
+			for (int j=1; j<i*i+1; j++) {
+				InetSocketAddress addr = new InetSocketAddress("10.0.0."+j, 3000);
+				actives.put("node-"+j, addr);
+			}
+			DeterministicHashing scheme = new DeterministicHashing(i, i);
+			System.out.println(i+" : "+scheme.getGroupForAllServiceNames(i, i, actives));
+		}
+	}
 }

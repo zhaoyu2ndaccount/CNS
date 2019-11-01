@@ -34,34 +34,54 @@ import edu.umass.cs.reconfiguration.examples.AppRequest;
 import edu.umass.cs.reconfiguration.examples.noopsimple.NoopApp;
 import edu.umass.cs.reconfiguration.reconfigurationpackets.CreateServiceName;
 import edu.umass.cs.reconfiguration.reconfigurationutils.RequestParseException;
+import schema.Schema;
 import schemes.BasicScheme;
 
 /**
  * @author gaozy
  *
  */
-@SuppressWarnings("rawtypes")
-public class MongoAppClient extends ReconfigurableAppClientAsync implements AppRequestParserBytes{
+public class MongoAppClient extends ReconfigurableAppClientAsync<Request> implements AppRequestParserBytes{
 
 	private static BasicScheme scheme;
 	protected static Map<Integer, String> allServiceNames;
 	protected static Map<Integer, List<InetSocketAddress>> allGroups;
-	private static Map<Integer, MongoCollection<Document>> allCollections;
+	protected static Map<Integer, MongoCollection<Document>> allCollections;
+	protected static Map<Integer, Boolean> allReplicaStateForSearch;
+	protected static Map<InetSocketAddress, NodeStatus> allNodeStates;
+
+	protected static Schema schema;
+
+	private static class NodeStatus {
+		protected boolean state;
+		protected int groupId;
+		
+		NodeStatus(boolean state, int groupId) {
+			this.state = state;
+			this.groupId = groupId;
+		}
+		
+		protected void setState(boolean state) {
+			this.state = state;
+		}
+		
+	}
+	
 	private static int numPartition;
 	private static int numReplica;
 	private static String key_filename = "keys.txt";
 	
-	private static boolean through_paxos = true;
+	protected static boolean through_paxos = true;
 	
 	private static boolean initialized = false;
 	
 	private static final Logger log = Logger
 			.getLogger(ReconfigurableAppClientAsync.class.getName());
 	
-	private static final String DEFAULT_SCHEME_NAME = "schemes.ConsistentHash";
+	private static final String DEFAULT_SCHEME_NAME = "schemes.DeterministicHashing";
 	private static final int DEFAULT_NUM_PARTITION = 1;
 	private static final int DEFAULT_NUM_REPLICA = 1;
-	private static final int DEFAULT_KEY_LEN = 32;
+	private static final int DEFAULT_KEY_LEN = 20;
 	private static final String SALTCHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 	
 	private static final Random rand = new Random();
@@ -104,15 +124,21 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 		numPartition = (System.getProperty("numPartition")!=null)?
 				Integer.valueOf(System.getProperty("numPartition")):DEFAULT_NUM_PARTITION;
 		numReplica = (System.getProperty("numReplica")!=null)?
-				Integer.valueOf(System.getProperty("numReplica")):DEFAULT_NUM_REPLICA;	
+				Integer.valueOf(System.getProperty("numReplica")):DEFAULT_NUM_REPLICA;
 				
 		// set scheme
 		String schemeName = System.getProperty("scheme");
 		if (schemeName == null) {
 			schemeName = DEFAULT_SCHEME_NAME;
 		}
-				
-		// initialize scheme
+
+		if (System.getProperty("schema")!= null) {
+			schema = new Schema(System.getProperty("schema"));
+		} else {
+			schema = new Schema(MongoApp.num_attributes);
+		}
+
+		// initialize partitioning scheme
 		try {			
 			Class<?> c = Class.forName(schemeName);			
 			scheme = (BasicScheme) c.getConstructor(int.class, int.class).newInstance(numPartition, numReplica);
@@ -121,6 +147,7 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 			e.printStackTrace();
 		}
 		
+		System.out.println("Initialize all parameters: numPartition="+numPartition+", numReplica="+numReplica+"");
 		// initialize server map
 		allGroups = getGroupForAllServiceNames();
 		for (int id: allGroups.keySet()) {
@@ -132,8 +159,20 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 			allServiceNames.put(i, PaxosConfig.getDefaultServiceName()+i);
 			System.out.println("Service name "+i+":"+PaxosConfig.getDefaultServiceName()+i);
 		}
+				
+		allReplicaStateForSearch = new HashMap<>();
+		for (int i : allGroups.keySet()) {
+			allReplicaStateForSearch.put(i, true);
+		}
 		
-		
+		allNodeStates = new HashMap<>();
+		for (int i : allGroups.keySet()){
+			List<InetSocketAddress> list = allGroups.get(i);
+			
+			for (InetSocketAddress addr : list) {
+				allNodeStates.put(addr, new NodeStatus(true, i));
+			}
+		}
 		
 		Map<String, InetSocketAddress> actives = PaxosConfig.getActives();		
 		int num_actives = actives.keySet().size();
@@ -149,18 +188,22 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 		log.log(Level.FINE, "MongoAppClient is initialized successfully.");
 		
 		allCollections = new HashMap<Integer, MongoCollection<Document>>();
-		int port = 27017;
-		int id = 0;
-		for (String name: actives.keySet()) {
-			String table_name = name;
-			String host = actives.get(name).getHostName(); // ((List<InetSocketAddress>) allGroups.get(id)).getHostName();
-			
-			MongoClient mongoClient = new MongoClient(host, port);
-			MongoDatabase database = mongoClient.getDatabase(MongoDBServiceApp.DB_NAME);
-			MongoCollection<Document> collection = database.getCollection(table_name);
-			
-			allCollections.put(id, collection);
-			++id;
+		// Initialize connections to DB only if throughPaxos is false, i.e., go to DB directly
+		if (!through_paxos){
+			int port = 27017;
+			int id = 0;
+			for (String name: actives.keySet()) {
+				String table_name = name;
+				String host = actives.get(name).getHostName(); // ((List<InetSocketAddress>) allGroups.get(id)).getHostName();
+				
+				@SuppressWarnings("resource")
+				MongoClient mongoClient = new MongoClient(host, port);
+				MongoDatabase database = mongoClient.getDatabase(MongoDBServiceApp.DB_NAME);
+				MongoCollection<Document> collection = database.getCollection(table_name);
+				
+				allCollections.put(id, collection);
+				++id;
+			}
 		}
 		
 		initialized = true;
@@ -181,6 +224,7 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 		try {
 			return NoopApp.staticGetRequest(stringified);
 		} catch (RequestParseException | JSONException e) {
+			System.out.println(stringified);
 			e.printStackTrace();
 			// do nothing by design
 		}
@@ -200,7 +244,6 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 		return key_length;
 	}
 	
-	
 	protected static Map<Integer, List<InetSocketAddress>> getGroupForAllServiceNames() {		
 		return scheme.getGroupForAllServiceNames(numPartition, numReplica, PaxosConfig.getActives());
 	}
@@ -215,17 +258,20 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 	
 	protected static void createAllGroups(MongoAppClient client, boolean toSent) throws IOException, InterruptedException {
 		for (int i:allGroups.keySet()) {
-//			System.out.println("Group "+i+":"+allGroups.get(i));
+			System.out.println("Group "+i+":"+allGroups.get(i));
 			Set<InetSocketAddress> initGroup = new HashSet<InetSocketAddress>(allGroups.get(i));
 			// put into service name map
 //			allServiceNames.put(i, PaxosConfig.getDefaultServiceName()+i);
 			
 			if (toSent) {
-				incrSent(1);
-				client.sendRequest(new CreateServiceName(PaxosConfig.getDefaultServiceName()+i, 
-						"", initGroup), 
+				// incrSent(1);
+				sent++;
+				final long createTime = System.currentTimeMillis();
+				client.sendRequest(new CreateServiceName(PaxosConfig.getDefaultServiceName()+i, "", initGroup),						
+				//client.sendRequest(new CreateServiceName(PaxosConfig.getDefaultServiceName()+i, 
+				//		"", initGroup), 
 						new RequestCallback() {
-							long createTime = System.currentTimeMillis();
+							
 							@Override
 							public void handleResponse(Request response) {
 								System.out
@@ -239,17 +285,16 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 							}
 						}
 					);
-			}
-			while(sent < received) {
-				Thread.sleep(500);
-			}
+			}			
 		}	
-			
+		
+		while(received < sent) {
+			Thread.sleep(500);
+		}	
 	}
 	
-	
-	
-	@SuppressWarnings({ "unchecked" })
+		
+	@SuppressWarnings({ })
 	protected Set<String> sendFindRequestAsync(BasicDBObject query) {
 		Set<String> result = new HashSet<String>();
 		List<Thread> list = new ArrayList<Thread>();
@@ -324,11 +369,47 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 	}
 	
 	/**
+	 * @return an index of replica that has all partitions available 
+	 */
+	public synchronized int getReplicaIndex() {
+		int index = rand.nextInt(numReplica);
+		// if the selected index is not available, select a new random group
+		
+		while (!allReplicaStateForSearch.get(index)) {
+			index = rand.nextInt(numReplica);
+		}
+		
+		return index;
+	}
+	
+	/**
+	 * @param group 
+	 * @param state 
+	 * @param addr 
+	 * @return true if the corresponding cluster state sets to true
+	 */
+	public static boolean updateReplicaState(int group, boolean state, InetSocketAddress addr) {
+		if (allNodeStates.containsKey(addr)){
+			NodeStatus nodeStatus = allNodeStates.get(addr);
+			nodeStatus.setState(state);
+		}
+		// Need to check all replicas in the group
+		List<InetSocketAddress> list = allGroups.get(group);
+		for (InetSocketAddress node : list) {
+			if (!allNodeStates.get(node).state){
+				allReplicaStateForSearch.put(group, false);
+				return false;
+			}
+		}
+		allReplicaStateForSearch.put(group, true);
+		return true;
+	}
+	
+	/**
 	 * This only works for consistent hash scheme
 	 * @param query
 	 * @return
 	 */
-	@SuppressWarnings("unchecked")
 	protected Set<String> sendFindRequest(BasicDBObject query) {
 		Set<String> result = new HashSet<String>();
 		
@@ -415,6 +496,7 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 	}
 	
 	protected static JSONObject findRequest(BasicDBObject query, int batch) {
+		
 		JSONObject json = new JSONObject();
 		try {
 			json.put(MongoApp.KEYS.TYPE.toString(), MongoApp.FIND_OP.toString());
@@ -425,6 +507,18 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 			e.printStackTrace();
 		}		
 		return json;	
+	}
+	
+	protected static JSONObject pingRequest() {
+		JSONObject json = new JSONObject();
+		try {
+			json.put(MongoApp.KEYS.TYPE.toString(), MongoApp.PING.toString());
+			json.put(MongoApp.KEYS.QUERY.toString(), "");
+		} catch (JSONException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}		
+		return json;
 	}
 	
 	protected static JSONObject insertRequest(Document doc) {
@@ -507,7 +601,7 @@ public class MongoAppClient extends ReconfigurableAppClientAsync implements AppR
 	// For experiment use only
 	private static int sent = 0;
 	private static synchronized void incrSent(int num){
-		sent++;
+		sent += num;
 	}
 	
 	private static int received = 0;

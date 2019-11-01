@@ -16,6 +16,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexModel;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 
@@ -60,7 +61,7 @@ public class MongoDBServiceApp implements Replicable {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		ERROR_MESSAGE = json.toString();
+		ERROR_MESSAGE = "ERR";// json.toString();
 		
 		try {
 			json.put(MongoApp.KEYS.CODE.toString(), MongoApp.code.success.toString());
@@ -68,7 +69,7 @@ public class MongoDBServiceApp implements Replicable {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		SUCCESS_MESSAGE = json.toString();
+		SUCCESS_MESSAGE = "OK"; //json.toString();
 		
 		if (System.getProperty(MongoApp.KEYS.TABLE.toString()) != null) {
 			TABLE_NAME = System.getProperty(MongoApp.KEYS.TABLE.toString());
@@ -83,7 +84,7 @@ public class MongoDBServiceApp implements Replicable {
 		this.mongoClient = new MongoClient("localhost", port);
 		
 		MongoDatabase database = this.mongoClient.getDatabase(DB_NAME);
-		this.collection = database.getCollection(TABLE_NAME);				
+		this.collection = database.getCollection(TABLE_NAME);
 	}
 	
 	@Override
@@ -110,17 +111,21 @@ public class MongoDBServiceApp implements Replicable {
 							if (value.has(MongoApp.KEYS.PARAM.toString()))
 								limit = value.getInt(MongoApp.KEYS.PARAM.toString());
 							
-							MongoCursor<Document> cursor = (limit==null) ? this.collection.find(Document.parse(query)).iterator(): 
-								this.collection.find(Document.parse(query)).limit(limit).iterator();
+							/**
+							 * Only return keys by using the projection
+							 */
+							MongoCursor<Document> cursor = (limit==null) ? 
+									this.collection.find(Document.parse(query)).projection(Projections.include(MongoApp.KEYS.KEY.toString())).iterator()
+									:this.collection.find(Document.parse(query)).projection(Projections.include(MongoApp.KEYS.KEY.toString())).limit(limit).iterator();							
 							
-							int count = 0;				
+							// int count = 0;				
 							try {
 							    while (cursor.hasNext()) {
 							    	// This is a string
 							        // cursor.next().toJson();
-							    	String record = cursor.next().toJson();
+							    	String record = cursor.next().getString(MongoApp.KEYS.KEY);
 							        array.put(record);
-							        count++;
+							        // count++;
 							    }
 							} finally {
 							    cursor.close();
@@ -181,7 +186,7 @@ public class MongoDBServiceApp implements Replicable {
 							e.printStackTrace();
 						}
 						*/
-						collection.drop();
+						// collection.drop();
 						req.setResponse(SUCCESS_MESSAGE);
 						}	
 						break;
@@ -211,6 +216,9 @@ public class MongoDBServiceApp implements Replicable {
 							e.printStackTrace();
 						}
 						System.out.println(">>>>>>>>>> DB restore is done!");
+						req.setResponse(SUCCESS_MESSAGE);
+						break;
+					case MongoApp.PING:
 						req.setResponse(SUCCESS_MESSAGE);
 						break;
 					default:
@@ -249,7 +257,7 @@ public class MongoDBServiceApp implements Replicable {
 	@Override
 	public String checkpoint(String name) {
 		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override

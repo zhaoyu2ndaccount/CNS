@@ -3,39 +3,36 @@ package mongo;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.bson.Document;
-import org.json.JSONObject;
 
 import com.mongodb.BasicDBObject;
+import com.mongodb.MongoClient;
+import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Projections;
 
-import edu.umass.cs.gigapaxos.interfaces.Request;
-import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.gigapaxos.paxosutil.RateLimiter;
-import edu.umass.cs.reconfiguration.examples.AppRequest;
 import edu.umass.cs.utils.Util;
-import schema.Schema;
 
 
 /**
  * @author gaozy
  */
-public class MongoAppCapacityProbingClient {
+public class MongoDBCapacityClient {
 
 	private static ExecutorService executor;
 	
@@ -73,12 +70,10 @@ public class MongoAppCapacityProbingClient {
     private static AtomicInteger num_searches = new AtomicInteger();
     private static AtomicInteger num_searches_single = new AtomicInteger();
     private static AtomicLong totalLatency = new AtomicLong();
-    private static AtomicLong searchID = new AtomicLong();
-    private static long lastResponseReceivedTime = System.currentTimeMillis();    
-    private static final ConcurrentHashMap<Long, Integer> requestMap = new ConcurrentHashMap<>();
+   
+    private static long lastResponseReceivedTime = System.currentTimeMillis();
     
-    
-    private static MongoAppClient[] init() {
+    private static MongoCollection<Document>[] init() {
 		if (System.getProperty("ratio") != null) {
 			ratio = Double.parseDouble(System.getProperty("ratio"));
 		}
@@ -87,12 +82,12 @@ public class MongoAppCapacityProbingClient {
 			fraction = Double.parseDouble(System.getProperty("frac"));
 		}
 		
-		if (System.getProperty("numClients") != null){
-			num_clients = Integer.parseInt(System.getProperty("numClients"));
-		}
-		
 		if (System.getProperty("selected") != null){
 			selected_attr = Integer.parseInt(System.getProperty("selected"));
+		}
+		String  prefer = "secondary";
+		if (System.getProperty("prefer") != null) {
+			prefer = System.getProperty("prefer");
 		}
 		
 		String fileName = MongoAppClient.getKeyFilename();
@@ -104,67 +99,68 @@ public class MongoAppCapacityProbingClient {
 		    }
 		    br.close();
 		} catch (IOException e) {
+			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-
-		/*
+		
 		for (int k=0; k<num_attributes; k++) {
 			attributes.add(ATTR_PREFIX+k);
 		}
-		*/
+		
+		// Enable MongoDB logging in general
+		System.setProperty("DEBUG.MONGO", "false");
+
+		// Enable DB operation tracing
+		System.setProperty("DB.TRACE", "false");
 		
 		numReplica = (System.getProperty("numReplica")!=null)?
 				Integer.valueOf(System.getProperty("numReplica")) : 1;	
 		numPartition = (System.getProperty("numPartition")!=null)?
 				Integer.valueOf(System.getProperty("numPartition")): 1;
-								
-		MongoAppClient[] clients = new MongoAppClient[num_clients];
+				
+		num_clients = numReplica*numPartition;
+		
+		MongoCollection<Document>[] clients = new MongoCollection[num_clients];
 		for (int i=0; i<num_clients; i++) {
-			try {
-				clients[i] = new MongoAppClient();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+			int port = 50000;
+			String table_name = "AR1";
+			MongoClient mongoClient = new MongoClient("node-"+(i+1), port);
+			MongoDatabase database = mongoClient.getDatabase(MongoDBServiceApp.DB_NAME);
+			MongoCollection<Document> collection = database.getCollection(table_name)
+					.withReadPreference((prefer.equals("nearest"))? ReadPreference.nearest(): ReadPreference.secondaryPreferred())
+					.withWriteConcern(WriteConcern.MAJORITY);;
+			clients[i] = collection;
 		}
-
-		attributes = Schema.attributes;
-
 		return clients;
 	}
     
-	private static void sendUpdateRequest(MongoAppClient client){ 
+	private static void sendUpdateRequest(MongoCollection<Document> collection){ 
 		String key = keys.get(rand.nextInt(keys.size()));
 		Document oldVal = new Document();
 		oldVal.put(MongoApp.KEYS.KEY.toString(), key);
 		Document newVal = new Document();
+
 		
 		for (int k=0; k<num_attributes; k++) {
-			// newVal.put(ATTR_PREFIX+k, rand.nextInt(max_val)+rand.nextDouble());
-			newVal.put(ATTR_PREFIX+k, rand.nextInt());
+			newVal.put(ATTR_PREFIX+k, rand.nextInt(max_val)+rand.nextDouble());
 		}
+
+		Document val = new Document();
+		val.put("$set", newVal);
 		
-		JSONObject req = MongoAppClient.replaceRequest(oldVal, newVal);
-		
-		String serviceName = client.getServiceName(oldVal);
-
-		try {
-			client.sendRequest(new AppRequest(serviceName, req.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),
-					new RequestCallback() {
-				@Override
-				public void handleResponse(Request response) {
-					lastResponseReceivedTime = System.currentTimeMillis();
-					num_updates.incrementAndGet();
-
-				}
-			});
-
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-    	
+		Runnable runnable = () -> {
+			try{
+				collection.updateOne(oldVal, val);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			lastResponseReceivedTime = System.currentTimeMillis();
+			num_updates.incrementAndGet();
+		};
+		executor.submit(runnable);
     }
     
-    private static void sendSearchRequestDirectlyToMongo() {
+    private static void sendSearchRequest(MongoCollection<Document> collection) {
     	List<String> givenList = new ArrayList<String>(attributes);
 		Collections.shuffle(givenList);
 		
@@ -189,125 +185,42 @@ public class MongoAppCapacityProbingClient {
 			query.put(attr, bson);
 		}
     	
-    	int idx = rand.nextInt(numReplica);
     	
     	Set<String> result = new HashSet<String>();
-    	final Long requestID = searchID.getAndIncrement();
-		requestMap.put(requestID, numPartition);
 		
-		for ( int i=0; i<numPartition; i++ ) {			
-			MongoCollection<Document> collection = MongoAppClient.allCollections.get(i*numReplica+idx);
+		Runnable runnable = () -> {
+			//MongoOptions options = new MongoOptions();
+			// options.setReadPreference(ReadPreference.secondaryPreferred());
 			
-			Runnable runnable = () -> {
-				// MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).limit(50).iterator(); 
-				MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).iterator();
-				try {
-				    while (cursor.hasNext()) {
-				    	// This is a string
-				        // cursor.next().toJson();
-				    	String record = cursor.next().toJson();
-				        result.add(record);
-				    }
-				} finally {
-					synchronized(requestID) {
-						int left = requestMap.get(requestID) - 1;
-						if (left == 0){
-							num_searches.incrementAndGet();
-						} else {
-							requestMap.put(requestID, left);
-							lastResponseReceivedTime = System.currentTimeMillis();
-						}
-					}
-				    cursor.close();
-				}
-			};
-			executor.submit(runnable);
-			// Thread thread = new Thread(runnable);
-			// thread.start();
-		}
-    }
-    
-	private static void sendSearchRequest(MongoAppClient client) {
-		List<String> givenList = new ArrayList<String>(attributes);
-		Collections.shuffle(givenList);
-		
-		int num_selected_attr = selected_attr;
-		// select only one attribute
-		if (selected_attr == 0 ) {
-			num_selected_attr = rand.nextInt(3)+1;
-		}
-		List<String> attr_selected = givenList.subList(0, num_selected_attr);
-		// Collections.sort(attr_selected);
-		
-		// int drift = (int) (2*Math.round(max_val*Math.pow(fraction, 1.0/num_selected_attr)));
-		double drift = max_val*Math.pow(fraction, 1.0/num_selected_attr);
-		
-		BasicDBObject query = new BasicDBObject();
-		for (String attr: attr_selected) {
-			BasicDBObject bson = new BasicDBObject();
-			double start = rand.nextDouble() + rand.nextInt(max_val);
-			double end = start + drift;
-			bson.put("$gte", start);
-			bson.put("$lt", end);
-			query.put(attr, bson);
-		}
-		
-		// Request packet
-		JSONObject reqVal = MongoAppClient.findRequest(query, max_batch/numPartition);
-		// Send to all machines in a replica
-		int idx = rand.nextInt(numReplica);
-		
-		// AtomicInteger resp = new AtomicInteger();
-		final Long requestID = searchID.getAndIncrement();
-		requestMap.put(requestID, numPartition);
-		
-		for (int i=0; i<numPartition; i++){
-			String serviceName = MongoAppClient.allServiceNames.get(i);
-
-			InetSocketAddress addr = MongoAppClient.allGroups.get(i).get(idx);
-			AppRequest request = new AppRequest(serviceName, reqVal.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
-			request.setNeedsCoordination(false);
-			// request.getRequestID()
-			try {				
-				client.sendRequest(request, addr,
-						new RequestCallback() {
-					@Override
-					public void handleResponse(Request response) {											
-						synchronized(requestID) {
-							int left = requestMap.get(requestID) - 1;
-							if (left == 0){
-								num_searches.incrementAndGet();
-								lastResponseReceivedTime = System.currentTimeMillis();	
-							} else {
-								requestMap.put(requestID, left);								
-							}
-						}						
-						// num_searches_single.incrementAndGet();
-					}
-				});
-									
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}	
-						
-		}
-			    	
+			// MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).limit(50).iterator(); 
+			MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).iterator();
+			try {
+			    while (cursor.hasNext()) {
+			    	// This is a string
+			        // cursor.next().toJson();
+			    	String record = cursor.next().toJson();
+			        result.add(record);
+			    }
+			} finally {
+				// System.out.println("Result set size:"+result.size());
+				num_searches.incrementAndGet();
+				lastResponseReceivedTime = System.currentTimeMillis();
+			    cursor.close();
+			}
+		};
+		executor.submit(runnable);
     }
     
     
     private static int sendRequests(int numReqs,
-			MongoAppClient[] clients, boolean searchOnly, double rate) {
+    		MongoCollection<Document>[] clients, boolean searchOnly, double rate) {
     	
     	int update = 0;
     	RateLimiter rateLimiter = new RateLimiter(rate);
     	if(searchOnly){
     		// only send search for warmup requests	    	
 	    	for (int i = 0; i < numReqs; i++) {
-	    		if (MongoAppClient.through_paxos)
-	    			sendSearchRequest( clients[i % num_clients] );
-	    		else
-	    			sendSearchRequestDirectlyToMongo();
+	    		sendSearchRequest(clients[i % num_clients]);
 				rateLimiter.record();
 			}
     	} else {
@@ -316,11 +229,8 @@ public class MongoAppCapacityProbingClient {
     				sendUpdateRequest( clients[i % num_clients]);
     				update++;
     			}
-    			else{
-    				if (MongoAppClient.through_paxos)
-    					sendSearchRequest( clients[i % num_clients]);
-    				else
-    					sendSearchRequestDirectlyToMongo();
+    			else{   				
+    				sendSearchRequest(clients[i % num_clients]);
     			}
     			rateLimiter.record();
     		}
@@ -344,6 +254,7 @@ public class MongoAppCapacityProbingClient {
     		try {
 				Thread.sleep(1000);
 			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
     		if ((num_searches.get() + num_updates.get() + num_searches_single.get()/numPartition) == last)
@@ -357,7 +268,7 @@ public class MongoAppCapacityProbingClient {
     	return true;
     }
     
-    private static double startProbing(double load, MongoAppClient[] clients) throws InterruptedException {
+    private static double startProbing(double load, MongoCollection<Document>[] clients) throws InterruptedException {
     	long runDuration = MongoApp.PROBE_RUN_DURATION; // seconds
 		double responseRate = 0, capacity = 0, latency = Double.MAX_VALUE;
 		double threshold = MongoApp.PROBE_RESPONSE_THRESHOLD;
@@ -441,7 +352,7 @@ public class MongoAppCapacityProbingClient {
 		.println("capacity <= "
 				+ Util.df(Math.max(capacity, load))
 				+ ", stopping probes because"
-				+ (capacity < threshold * load ? " response_rate was less than 95% of injected load"
+				+ (capacity < threshold * load ? " response_rate was less than 95% of injected load "
 						+ Util.df(load) + "/s; "
 						: "")
 				+ (latency > MongoApp.PROBE_LATENCY_THRESHOLD ? " average_response_time="
@@ -473,11 +384,7 @@ public class MongoAppCapacityProbingClient {
     public static void main(String[] args) throws IOException, InterruptedException {    	
     	
     	// Initialize all parameters and create clients 
-    	MongoAppClient[] clients = init();
-    	
-		// Create all service names locally
-		MongoAppClient.createAllGroups(clients[0], false);		
-		// Thread.sleep(2000);		
+    	MongoCollection<Document>[] clients = init();
 		
 		// initialize executor pool
     	executor = Executors.newFixedThreadPool(num_clients*10);
@@ -489,7 +396,7 @@ public class MongoAppCapacityProbingClient {
     	// begin warmup run	
 		
 		int numWarmupRequests = Math.min(total_reqs, 10 * num_clients);
-		
+		// numWarmupRequests = 30000;
 		sendRequests(numWarmupRequests, clients, true,
 				probing_start_point);
 		boolean success = waitForResponses(numWarmupRequests);
@@ -508,9 +415,9 @@ public class MongoAppCapacityProbingClient {
 		// end probing
 		System.out.println("Thruput: "+Util.df(responseRate));
 		
-		for (int i=0; i<num_clients; i++){
-			clients[i].close();
-		}
 		executor.shutdown();
+		
+		Thread.sleep(2000);
+		System.exit(0);
     }
 }

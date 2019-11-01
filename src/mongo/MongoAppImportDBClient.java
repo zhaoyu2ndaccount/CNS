@@ -2,22 +2,28 @@ package mongo;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.bson.Document;
-import org.json.JSONArray;
-import org.json.JSONObject;
+
+import com.mongodb.BasicDBObject;
+import com.mongodb.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.IndexModel;
 
 import edu.umass.cs.gigapaxos.PaxosConfig;
-import edu.umass.cs.gigapaxos.interfaces.Request;
-import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
-import edu.umass.cs.reconfiguration.examples.AppRequest;
 
 /**
  * @author gaozy
  *
  */
 public class MongoAppImportDBClient {
+	
+	private final static int num_attributes = MongoApp.num_attributes;
 	
 	private static int rcvd = 0;
 	synchronized static void incrRcvd() {
@@ -32,6 +38,7 @@ public class MongoAppImportDBClient {
 	 */
 	public static void main(String[] args) throws IOException, InterruptedException {
         
+		
 		MongoAppClient client = new MongoAppClient();
 
 		int numReplica = 1;
@@ -43,14 +50,32 @@ public class MongoAppImportDBClient {
 			numPartition = Integer.parseInt((System.getProperty("numPartition")));
 		}
 		
+		HashMap<Integer, MongoCollection<Document>> allCollections = new HashMap<Integer, MongoCollection<Document>>();
+		Map<String, InetSocketAddress>actives = PaxosConfig.getActives();
+		int port = 27017;
+		int id = 0;
+		for (String name: actives.keySet()) {
+			String table_name = name;
+			String host = actives.get(name).getHostName(); // ((List<InetSocketAddress>) allGroups.get(id)).getHostName();
+			
+			@SuppressWarnings("resource")
+			MongoClient mongoClient = new MongoClient(host, port);
+			MongoDatabase database = mongoClient.getDatabase(MongoDBServiceApp.DB_NAME);
+			MongoCollection<Document> collection = database.getCollection(table_name);
+			
+			allCollections.put(id, collection);
+			++id;
+		}
+		
 		// Create all service names
 		MongoAppClient.createAllGroups(client, true);
 		
 		// It takes a few seconds to initialize all groups
 		Thread.sleep(numReplica*2000);
 		
-		int total = numReplica* numPartition;
-		
+		// int total = numReplica* numPartition;
+		//TODO: restore DB out of the code
+		/*
 		for (int i=0; i<numPartition; i++) {
 			//Command: mongorestore -d active -c AR0 /proj/anolis-PG0/groups/1-node/active/AR0.bson
 			// FIXME: this only works for consistent hash scheme, figure out what to add			
@@ -80,17 +105,33 @@ public class MongoAppImportDBClient {
 		while (rcvd < total){
 			Thread.sleep(500);
 		}
+		*/
+		
+		List<Thread> th_pool = new ArrayList<Thread>();
 		
 		// create key index for update
-		JSONArray json_arr = new JSONArray();
-		Document doc = new Document();
-		doc.put(MongoApp.KEYS.KEY.toString(), 1);
-		json_arr.put(doc.toJson());
-		JSONObject json = MongoAppClient.indexRequest(json_arr);
+		
+		List<IndexModel> indexes = new ArrayList<IndexModel>();
+		for (int i=0; i<num_attributes; i++) {
+			BasicDBObject obj = new BasicDBObject();
+			obj.append(MongoApp.ATTR_PREFIX+i, 1);
+			IndexModel model = new IndexModel(obj);
+			indexes.add(model);
+		}
 		for (int i=0; i<numPartition; i++) {
-			String serviceName = MongoAppClient.allServiceNames.get(i);
-			AppRequest request = new AppRequest(serviceName, json.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
-			client.sendRequest(request);
+			final MongoCollection<Document> coll = allCollections.get(i);
+			Thread th = new Thread(new Runnable(){
+				@Override
+				public void run() {
+					coll.createIndexes(indexes);
+				}
+			});
+			th_pool.add(th);
+			th.start();
+		}
+		
+		for (Thread th:th_pool){
+			th.join();
 		}
 		
 		client.close();

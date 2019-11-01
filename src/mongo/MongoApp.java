@@ -28,7 +28,7 @@ public class MongoApp {
 		/**
 		 * The type of a query: find, update, insert
 		 */
-		TYPE,		
+		TYPE,
 		/**
 		 * The content of a query: specified by client
 		 */
@@ -70,6 +70,10 @@ public class MongoApp {
 	 *
 	 */
 	final protected static String FIND_OP = "find";
+	/**
+	 * Get operation
+	 */
+	final protected static String GET_OP = "get";
 	// this is equivelent to update operation
 	final protected static String REPLACE_ONE_OP = "replace";
 	final protected static String INSERT_OP = "insert";
@@ -78,16 +82,17 @@ public class MongoApp {
 	final protected static String DROP_OP = "drop";
 	final protected static String CREATE_INDEX_OP = "create_index";
 	final protected static String RESTORE_OP = "restore";
+	final protected static String PING = "ping";
 	
 	
-	// 100K 
-	final static int num_records = 1000000;
+	// 10M 
+	final static int num_records = 10000000;
 	// 10 attributes
-	final static int num_attributes = 10;
+	public final static int num_attributes = 12;
 	// prefix
-	final static String ATTR_PREFIX = "a";
-	// experiment time: 20s
-	final static long EXP_WAIT_TIME = 20*1000;
+	public final static String ATTR_PREFIX = "a";
+	// experiment wait time: 30s
+	final static long EXP_WAIT_TIME = 40*1000;
 	// total number of requests to send
 	final static int TOTAL_REQS = 400000;
 	
@@ -99,16 +104,20 @@ public class MongoApp {
 	final static double PROBE_LOAD_INCREASE_FACTOR = 1.1;
 	final static double PROBE_LATENCY_THRESHOLD = 10000;
 	final static int MAX_CONSECURIVE_FAILURES = 3;
-	final static int MAX_RUN_ATTEMPTS = 50;
+	final static int MAX_RUN_ATTEMPTS = 200;
 	
 	/**
 	 * max value of each attribute
 	 */
 	public final static int MAX_VALUE = 100000;
 	// max number for batch in search query
-	final static int MAX_BATCH_NUM = 1000;
-	
-	
+	final static int MAX_BATCH_NUM = 200;
+
+	// FIXME: used to run dimnensionality experiment, need to refine later
+	public static int MAX_INT_VALUE = Integer.MAX_VALUE;
+	public static int NUM_BUCKETS = 4;
+	public static int INTERVAL = MAX_INT_VALUE / NUM_BUCKETS;
+
 	/**
 	 * @param data
 	 * @return a byte stream

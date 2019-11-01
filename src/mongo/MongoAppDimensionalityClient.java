@@ -1,41 +1,33 @@
 package mongo;
 
+import com.mongodb.BasicDBObject;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Projections;
+import edu.umass.cs.gigapaxos.interfaces.Request;
+import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
+import edu.umass.cs.gigapaxos.paxosutil.RateLimiter;
+import edu.umass.cs.reconfiguration.examples.AppRequest;
+import edu.umass.cs.utils.Util;
+import org.bson.Document;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.bson.Document;
-import org.json.JSONObject;
-
-import com.mongodb.BasicDBObject;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.model.Projections;
-
-import edu.umass.cs.gigapaxos.interfaces.Request;
-import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
-import edu.umass.cs.gigapaxos.paxosutil.RateLimiter;
-import edu.umass.cs.reconfiguration.examples.AppRequest;
-import edu.umass.cs.utils.Util;
-import schema.Schema;
-
 
 /**
  * @author gaozy
  */
-public class MongoAppCapacityProbingClient {
+public class MongoAppDimensionalityClient {
 
 	private static ExecutorService executor;
 	
@@ -54,6 +46,10 @@ public class MongoAppCapacityProbingClient {
 	
 	// max value of range of each attribute
 	private final static int max_val = MongoApp.MAX_VALUE;
+
+	// the value range to touch in a single search query
+	private final static double DRIFT = max_val*fraction;
+
 	// max batch number
 	private final static int max_batch = MongoApp.MAX_BATCH_NUM;
 	
@@ -106,12 +102,10 @@ public class MongoAppCapacityProbingClient {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-
-		/*
+		
 		for (int k=0; k<num_attributes; k++) {
 			attributes.add(ATTR_PREFIX+k);
 		}
-		*/
 		
 		numReplica = (System.getProperty("numReplica")!=null)?
 				Integer.valueOf(System.getProperty("numReplica")) : 1;	
@@ -126,9 +120,6 @@ public class MongoAppCapacityProbingClient {
 				e.printStackTrace();
 			}
 		}
-
-		attributes = Schema.attributes;
-
 		return clients;
 	}
     
@@ -146,7 +137,7 @@ public class MongoAppCapacityProbingClient {
 		JSONObject req = MongoAppClient.replaceRequest(oldVal, newVal);
 		
 		String serviceName = client.getServiceName(oldVal);
-
+		
 		try {
 			client.sendRequest(new AppRequest(serviceName, req.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),
 					new RequestCallback() {
@@ -154,10 +145,10 @@ public class MongoAppCapacityProbingClient {
 				public void handleResponse(Request response) {
 					lastResponseReceivedTime = System.currentTimeMillis();
 					num_updates.incrementAndGet();
-
+					
 				}
 			});
-
+			
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -226,13 +217,16 @@ public class MongoAppCapacityProbingClient {
 			// thread.start();
 		}
     }
-    
-	private static void sendSearchRequest(MongoAppClient client) {
+
+	/**
+	 *
+	 * @param client
+	 */
+	private static void sendSearchRequestForDimensionality(MongoAppClient client) {
 		List<String> givenList = new ArrayList<String>(attributes);
-		Collections.shuffle(givenList);
 		
 		int num_selected_attr = selected_attr;
-		// select only one attribute
+		// select 1-3 random number of attributes
 		if (selected_attr == 0 ) {
 			num_selected_attr = rand.nextInt(3)+1;
 		}
@@ -240,7 +234,7 @@ public class MongoAppCapacityProbingClient {
 		// Collections.sort(attr_selected);
 		
 		// int drift = (int) (2*Math.round(max_val*Math.pow(fraction, 1.0/num_selected_attr)));
-		double drift = max_val*Math.pow(fraction, 1.0/num_selected_attr);
+		double drift = DRIFT;
 		
 		BasicDBObject query = new BasicDBObject();
 		for (String attr: attr_selected) {
@@ -263,8 +257,8 @@ public class MongoAppCapacityProbingClient {
 		
 		for (int i=0; i<numPartition; i++){
 			String serviceName = MongoAppClient.allServiceNames.get(i);
-
-			InetSocketAddress addr = MongoAppClient.allGroups.get(i).get(idx);
+			List<InetSocketAddress> l = MongoAppClient.allGroups.get(i);
+			InetSocketAddress addr = l.get(idx);
 			AppRequest request = new AppRequest(serviceName, reqVal.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
 			request.setNeedsCoordination(false);
 			// request.getRequestID()
@@ -305,7 +299,7 @@ public class MongoAppCapacityProbingClient {
     		// only send search for warmup requests	    	
 	    	for (int i = 0; i < numReqs; i++) {
 	    		if (MongoAppClient.through_paxos)
-	    			sendSearchRequest( clients[i % num_clients] );
+	    			sendSearchRequestForDimensionality( clients[i % num_clients] );
 	    		else
 	    			sendSearchRequestDirectlyToMongo();
 				rateLimiter.record();
@@ -318,7 +312,7 @@ public class MongoAppCapacityProbingClient {
     			}
     			else{
     				if (MongoAppClient.through_paxos)
-    					sendSearchRequest( clients[i % num_clients]);
+    					sendSearchRequestForDimensionality( clients[i % num_clients]);
     				else
     					sendSearchRequestDirectlyToMongo();
     			}
@@ -486,8 +480,7 @@ public class MongoAppCapacityProbingClient {
     	if (args.length > 0)
     		probing_start_point = Integer.parseInt(args[0]);
     	
-    	// begin warmup run	
-		
+    	// begin warmup run
 		int numWarmupRequests = Math.min(total_reqs, 10 * num_clients);
 		
 		sendRequests(numWarmupRequests, clients, true,

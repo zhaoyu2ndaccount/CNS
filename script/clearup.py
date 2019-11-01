@@ -57,9 +57,7 @@ def main():
     fin.close()
     """
 
-    for i in range(num+2):
-        if i > 40:
-            continue
+    for i in range(num+1):
         hostname = "node-"+str(i)
         cmd = 'pkill -f java'
         th = CommandThread(hostname, cmd, USERNAME)
@@ -74,9 +72,7 @@ def main():
     time.sleep(1)
 
     th_pool = []
-    for i in range(num+2):
-        if i > 40:
-            continue
+    for i in range(num+1):
         hostname = "node-"+str(i)
         cmd = 'rm -rf derby.log paxos_logs* reconfiguration_DB'
         th = CommandThread(hostname, cmd, USERNAME)

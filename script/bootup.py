@@ -16,7 +16,7 @@ ACTIVE_REPLICA = 'AR'
 
 PORT = 6000
 
-MAX = 49
+MAX = 200
 
 # user name of cloudlab
 USERNAME = 'oversky'
@@ -46,7 +46,7 @@ def get_actives(num):
     cnt = 0
     offset = 0
     for i in range(num):
-        arr.append((ACTIVE_REPLICA+str(i), 'node-'+str(cnt+1), offset))
+        arr.append((ACTIVE_REPLICA+str(i+1), 'node-'+str(cnt+1), offset))
         cnt += 1
         if cnt == MAX:
             cnt = 0
@@ -76,7 +76,7 @@ def main():
 
     # coordinator thread: coordinator is still undecided, let the first one to be the coordinator
     hostname = 'node-0'
-    cmd = 'java -ea -cp CNS.jar -Djava.util.logging.config.file=conflogging.properties'\
+    cmd = 'java -ea -cp CNS.jar -Djava.util.logging.config.file=conf/logging.properties'\
           + ' -Dlog4j.configuration=conf/log4j.properties'\
           + ' -DgigapaxosConfig=mongo-'+str(num)+'.properties edu.umass.cs.reconfiguration.ReconfigurableNode '+RECONFIGURATOR
     print cmd
@@ -87,22 +87,29 @@ def main():
         ar, hostname, offset = tp
         # java -ea -cp CNS.jar -Djava.util.logging.config.file=conf/logging.properties
         # -Dlog4j.configuration=conf/log4j.properties -DgigapaxosConfig=conf/examples/mongo.properties
+        """
         cmd = 'taskset -c '+str(offset*THREADS)+'-' + str(offset*THREADS + THREADS-1) \
               + ' java -ea -Xms4G -Xmx4G -cp CNS.jar' \
               + ' -DTABLE='+str(ar) \
-              + ' -Djava.util.logging.config.file=conflogging.properties'\
+              + ' -Djava.util.logging.config.file=conf/logging.properties'\
               + ' -Dlog4j.configuration=conf/log4j.properties'\
               + ' -DgigapaxosConfig=mongo-'+str(num)+'.properties edu.umass.cs.reconfiguration.ReconfigurableNode '+str(ar)
         print cmd
+        """
+
+        cmd = 'java -ea -Xms8G -cp CNS.jar' \
+              + ' -DTABLE='+str(ar) \
+              + ' -Djava.util.logging.config.file=conf/logging.properties'\
+              + ' -Dlog4j.configuration=conf/log4j.properties'\
+              + ' -DgigapaxosConfig=mongo-'+str(num)+'.properties edu.umass.cs.reconfiguration.ReconfigurableNode '+str(ar)
+
         th = CommandThread(hostname, cmd, USERNAME)
         th_pool.append(th)
-
-    time.sleep(2)
-
-    for th in th_pool:
         th.start()
 
+    time.sleep(10)
     print 'Experiment is booted up'
+
 
     sys.exit(0)
 

@@ -14,14 +14,15 @@ import com.mongodb.BasicDBObject;
  */
 public interface PartitionScheme {	
 	/**
-	 * Based on the entry to determine the service name
+	 * Based on the entry to determine a list of service names
 	 * @param bson 
 	 * @param map
 	 * @return a GigaPaxos service name
 	 */
 	public String getServiceName(Document bson, Map<Integer, String> map);
-	
+
 	/**
+	 *
 	 * @param bson 
 	 * @param map 
 	 * @return all the actives in a single replica for search query
