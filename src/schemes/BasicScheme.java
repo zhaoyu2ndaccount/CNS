@@ -1,6 +1,7 @@
 package schemes;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -9,6 +10,7 @@ import org.bson.Document;
 import com.mongodb.BasicDBObject;
 
 import interfaces.PartitionScheme;
+import org.json.JSONObject;
 
 /**
  * @author gaozy
@@ -47,6 +49,21 @@ public class BasicScheme implements PartitionScheme{
 	@Override
 	public String getServiceName(Document bson, Map<Integer, String> map){
 		throw new RuntimeException("unimplemented");
+	}
+
+	/**
+	 * This method is a default approach that returns all partitions for a search query
+	 * @param doc
+	 * @return
+	 */
+	@Override
+	public List<Integer> getPartitionsForSearch(BasicDBObject doc) {
+		List<Integer> retval = new ArrayList<>();
+		for (int i=0; i<numPartitions; i++){
+			retval.add(i);
+		}
+
+		return retval;
 	}
 
 }

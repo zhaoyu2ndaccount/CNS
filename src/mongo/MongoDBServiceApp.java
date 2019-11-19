@@ -122,9 +122,8 @@ public class MongoDBServiceApp implements Replicable {
 							try {
 							    while (cursor.hasNext()) {
 							    	// This is a string
-							        // cursor.next().toJson();
-							    	String record = cursor.next().getString(MongoApp.KEYS.KEY);
-							        array.put(record);
+							    	String record = cursor.next().getString(MongoApp.KEYS.KEY.toString());
+							        // array.put(record);
 							        // count++;
 							    }
 							} finally {

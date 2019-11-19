@@ -145,7 +145,7 @@ public class MongoAppCapacityProbingClient {
 		
 		JSONObject req = MongoAppClient.replaceRequest(oldVal, newVal);
 		
-		String serviceName = client.getServiceName(oldVal);
+		String serviceName = MongoAppClient.getServiceName(oldVal);
 
 		try {
 			client.sendRequest(new AppRequest(serviceName, req.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),

@@ -21,7 +21,7 @@ import mongo.MongoApp;
  */
 public class DeterministicHashing extends BasicScheme {
 	
-	final int numServiceNames;
+	// final int numServiceNames;
 	
 	/**
 	 * @param numPartitions 
@@ -29,9 +29,6 @@ public class DeterministicHashing extends BasicScheme {
 	 */
 	public DeterministicHashing(int numPartitions, int numReplicas) {
 		super(numPartitions, numReplicas);
-		this.numServiceNames = numPartitions;
-//		serviceNamePrefix = Config.getGlobalString(TC.TEST_GUID_PREFIX);
-//		System.out.println("Service Name Prefix is:"+serviceNamePrefix);
 	}
 
 	@Override
@@ -41,9 +38,9 @@ public class DeterministicHashing extends BasicScheme {
 		byte[] b = key.getBytes();
 		int retval = b.hashCode();
 		
-		assert(map.keySet().size() >= this.numServiceNames);
+		assert(map.keySet().size() >= super.numPartitions);
 		
-		return map.get(retval % this.numServiceNames);
+		return map.get(retval % super.numPartitions);
 	}
 	
 	@Override
@@ -67,7 +64,7 @@ public class DeterministicHashing extends BasicScheme {
 		byte[] b = key.getBytes();
 		int retval = b.hashCode();
 		
-		return map.get(retval % numServiceNames);
+		return map.get(retval % super.numPartitions);
 	}
 	
 	@Override
@@ -97,7 +94,8 @@ public class DeterministicHashing extends BasicScheme {
 		
 		return map;
 	}
-	
+
+
 	/**
 	 * @param args
 	 */

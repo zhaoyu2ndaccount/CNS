@@ -1,19 +1,14 @@
 package mongo;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.model.Projections;
+import com.sun.media.jfxmedia.logging.Logger;
 import edu.umass.cs.gigapaxos.interfaces.Request;
 import edu.umass.cs.gigapaxos.interfaces.RequestCallback;
 import edu.umass.cs.gigapaxos.paxosutil.RateLimiter;
 import edu.umass.cs.reconfiguration.examples.AppRequest;
 import edu.umass.cs.utils.Util;
-import org.bson.Document;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.*;
@@ -29,13 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class MongoAppDimensionalityClient {
 
-	private static ExecutorService executor;
-	
- 	private static Random rand = new Random();
-
-	private static double ratio = 0.0;
-
-	private static double fraction = 0.000005;
+	private static Random rand = new Random();
 	
 	private static int selected_attr = 0;
 
@@ -45,25 +34,21 @@ public class MongoAppDimensionalityClient {
 	private final static String ATTR_PREFIX = MongoApp.ATTR_PREFIX;
 	
 	// max value of range of each attribute
-	private final static int max_val = MongoApp.MAX_VALUE;
+	private final static int max_val = MongoApp.MAX_INT_VALUE;
 
 	// the value range to touch in a single search query
-	private final static double DRIFT = max_val*fraction;
+	private final static int DRIFT = 1;
 
 	// max batch number
 	private final static int max_batch = MongoApp.MAX_BATCH_NUM;
-	
-	private static List<String> keys = new ArrayList<String>();
-	
+
 	private static List<String> attributes = new ArrayList<String>();
 	
 	private static int num_clients = 50;
 	
 	private static int numReplica;
 	private static int numPartition;
-    
-    private static int total_reqs = MongoApp.TOTAL_REQS;
-    
+
     // probing related variables
     private static AtomicInteger num_updates = new AtomicInteger();
     private static AtomicInteger num_searches = new AtomicInteger();
@@ -75,14 +60,11 @@ public class MongoAppDimensionalityClient {
     
     
     private static MongoAppClient[] init() {
-		if (System.getProperty("ratio") != null) {
-			ratio = Double.parseDouble(System.getProperty("ratio"));
-		}
-		
-		if (System.getProperty("frac") != null) {
-			fraction = Double.parseDouble(System.getProperty("frac"));
-		}
-		
+
+    	// FIXME: experiment only
+    	System.setProperty("scheme", "schemes.HyperDexRegionMapping");
+		System.setProperty("numAttr", "5");
+
 		if (System.getProperty("numClients") != null){
 			num_clients = Integer.parseInt(System.getProperty("numClients"));
 		}
@@ -90,18 +72,7 @@ public class MongoAppDimensionalityClient {
 		if (System.getProperty("selected") != null){
 			selected_attr = Integer.parseInt(System.getProperty("selected"));
 		}
-		
-		String fileName = MongoAppClient.getKeyFilename();
-		
-		try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-		    String line;
-		    while ((line = br.readLine()) != null) {
-		    	keys.add(line);
-		    }
-		    br.close();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
+
 		
 		for (int k=0; k<num_attributes; k++) {
 			attributes.add(ATTR_PREFIX+k);
@@ -122,101 +93,6 @@ public class MongoAppDimensionalityClient {
 		}
 		return clients;
 	}
-    
-	private static void sendUpdateRequest(MongoAppClient client){ 
-		String key = keys.get(rand.nextInt(keys.size()));
-		Document oldVal = new Document();
-		oldVal.put(MongoApp.KEYS.KEY.toString(), key);
-		Document newVal = new Document();
-		
-		for (int k=0; k<num_attributes; k++) {
-			// newVal.put(ATTR_PREFIX+k, rand.nextInt(max_val)+rand.nextDouble());
-			newVal.put(ATTR_PREFIX+k, rand.nextInt());
-		}
-		
-		JSONObject req = MongoAppClient.replaceRequest(oldVal, newVal);
-		
-		String serviceName = client.getServiceName(oldVal);
-		
-		try {
-			client.sendRequest(new AppRequest(serviceName, req.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false),
-					new RequestCallback() {
-				@Override
-				public void handleResponse(Request response) {
-					lastResponseReceivedTime = System.currentTimeMillis();
-					num_updates.incrementAndGet();
-					
-				}
-			});
-			
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-    	
-    }
-    
-    private static void sendSearchRequestDirectlyToMongo() {
-    	List<String> givenList = new ArrayList<String>(attributes);
-		Collections.shuffle(givenList);
-		
-		int num_selected_attr = selected_attr;
-		// select only one attribute
-		if (selected_attr == 0 ) {
-			num_selected_attr = rand.nextInt(3)+1;
-		}
-		List<String> attr_selected = givenList.subList(0, num_selected_attr);
-		Collections.sort(attr_selected);
-		
-		// int drift = (int) (2*Math.round(max_val*Math.pow(fraction, 1.0/num_selected_attr)));
-		double drift = max_val*Math.pow(fraction, 1.0/num_selected_attr);
-		
-		BasicDBObject query = new BasicDBObject();
-		for (String attr: attr_selected) {
-			BasicDBObject bson = new BasicDBObject();
-			double start = rand.nextDouble() + rand.nextInt(max_val);
-			double end = start + drift;
-			bson.put("$gte", start);
-			bson.put("$lt", end);
-			query.put(attr, bson);
-		}
-    	
-    	int idx = rand.nextInt(numReplica);
-    	
-    	Set<String> result = new HashSet<String>();
-    	final Long requestID = searchID.getAndIncrement();
-		requestMap.put(requestID, numPartition);
-		
-		for ( int i=0; i<numPartition; i++ ) {			
-			MongoCollection<Document> collection = MongoAppClient.allCollections.get(i*numReplica+idx);
-			
-			Runnable runnable = () -> {
-				// MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).limit(50).iterator(); 
-				MongoCursor<Document> cursor = collection.find(query).projection(Projections.include(MongoApp.KEYS.KEY.toString())).iterator();
-				try {
-				    while (cursor.hasNext()) {
-				    	// This is a string
-				        // cursor.next().toJson();
-				    	String record = cursor.next().toJson();
-				        result.add(record);
-				    }
-				} finally {
-					synchronized(requestID) {
-						int left = requestMap.get(requestID) - 1;
-						if (left == 0){
-							num_searches.incrementAndGet();
-						} else {
-							requestMap.put(requestID, left);
-							lastResponseReceivedTime = System.currentTimeMillis();
-						}
-					}
-				    cursor.close();
-				}
-			};
-			executor.submit(runnable);
-			// Thread thread = new Thread(runnable);
-			// thread.start();
-		}
-    }
 
 	/**
 	 *
@@ -228,19 +104,20 @@ public class MongoAppDimensionalityClient {
 		int num_selected_attr = selected_attr;
 		// select 1-3 random number of attributes
 		if (selected_attr == 0 ) {
-			num_selected_attr = rand.nextInt(3)+1;
+			System.err.println("Number of attributes can not be 0!");
+			System.exit(-1);
 		}
 		List<String> attr_selected = givenList.subList(0, num_selected_attr);
 		// Collections.sort(attr_selected);
 		
 		// int drift = (int) (2*Math.round(max_val*Math.pow(fraction, 1.0/num_selected_attr)));
-		double drift = DRIFT;
+		int drift = DRIFT;
 		
 		BasicDBObject query = new BasicDBObject();
 		for (String attr: attr_selected) {
 			BasicDBObject bson = new BasicDBObject();
-			double start = rand.nextDouble() + rand.nextInt(max_val);
-			double end = start + drift;
+			int start = rand.nextInt(max_val);
+			int end = start + drift;
 			bson.put("$gte", start);
 			bson.put("$lt", end);
 			query.put(attr, bson);
@@ -253,20 +130,29 @@ public class MongoAppDimensionalityClient {
 		
 		// AtomicInteger resp = new AtomicInteger();
 		final Long requestID = searchID.getAndIncrement();
-		requestMap.put(requestID, numPartition);
-		
-		for (int i=0; i<numPartition; i++){
+
+		List<Integer> partitions = MongoAppClient.getPartitionsFromQuery(query);
+
+		requestMap.put(requestID, partitions.size());
+
+		// System.out.println("Query:"+query+", Paritition: "+partitions);
+
+		for (int i : partitions){
 			String serviceName = MongoAppClient.allServiceNames.get(i);
 			List<InetSocketAddress> l = MongoAppClient.allGroups.get(i);
+
 			InetSocketAddress addr = l.get(idx);
+			// System.out.println("ServiceName:"+serviceName+", address:"+addr);
 			AppRequest request = new AppRequest(serviceName, reqVal.toString(), AppRequest.PacketType.DEFAULT_APP_REQUEST, false);
 			request.setNeedsCoordination(false);
-			// request.getRequestID()
-			try {				
+
+			try {
 				client.sendRequest(request, addr,
 						new RequestCallback() {
 					@Override
-					public void handleResponse(Request response) {											
+					public void handleResponse(Request response) {
+						Logger.logMsg(Logger.INFO, "Search response: "+response );
+
 						synchronized(requestID) {
 							int left = requestMap.get(requestID) - 1;
 							if (left == 0){
@@ -291,34 +177,18 @@ public class MongoAppDimensionalityClient {
     
     
     private static int sendRequests(int numReqs,
-			MongoAppClient[] clients, boolean searchOnly, double rate) {
+			MongoAppClient[] clients, double rate) {
     	
     	int update = 0;
     	RateLimiter rateLimiter = new RateLimiter(rate);
-    	if(searchOnly){
-    		// only send search for warmup requests	    	
-	    	for (int i = 0; i < numReqs; i++) {
-	    		if (MongoAppClient.through_paxos)
-	    			sendSearchRequestForDimensionality( clients[i % num_clients] );
-	    		else
-	    			sendSearchRequestDirectlyToMongo();
-				rateLimiter.record();
-			}
-    	} else {
-    		for (int i=0; i<numReqs; i++) {
-    			if (rand.nextDouble() < ratio){
-    				sendUpdateRequest( clients[i % num_clients]);
-    				update++;
-    			}
-    			else{
-    				if (MongoAppClient.through_paxos)
-    					sendSearchRequestForDimensionality( clients[i % num_clients]);
-    				else
-    					sendSearchRequestDirectlyToMongo();
-    			}
-    			rateLimiter.record();
-    		}
-    	}
+
+		// only send search for warmup requests
+		for (int i = 0; i < numReqs; i++) {
+			sendSearchRequestForDimensionality( clients[i % num_clients] );
+
+			rateLimiter.record();
+		}
+
     	return update;
     }
     
@@ -386,7 +256,7 @@ public class MongoAppDimensionalityClient {
 			
 			int numRunRequests = (int) (load * runDuration);
 			long t1 = System.currentTimeMillis();
-			int update = sendRequests(numRunRequests, clients, false, load);
+			int update = sendRequests(numRunRequests, clients, load);
 
 			// no need to wait for all responses
 			/*
@@ -474,16 +344,16 @@ public class MongoAppDimensionalityClient {
 		// Thread.sleep(2000);		
 		
 		// initialize executor pool
-    	executor = Executors.newFixedThreadPool(num_clients*10);
+		ExecutorService executor = Executors.newFixedThreadPool(num_clients * 10);
     	
     	int probing_start_point = 200*numReplica;
     	if (args.length > 0)
     		probing_start_point = Integer.parseInt(args[0]);
     	
     	// begin warmup run
-		int numWarmupRequests = Math.min(total_reqs, 10 * num_clients);
+		int numWarmupRequests = 10 * num_clients;
 		
-		sendRequests(numWarmupRequests, clients, true,
+		sendRequests(numWarmupRequests, clients,
 				probing_start_point);
 		boolean success = waitForResponses(numWarmupRequests);
 		
@@ -494,6 +364,8 @@ public class MongoAppDimensionalityClient {
             System.out.println("Warm up failed. Ready to exit...");
             System.exit(-1);
         }
+
+
 		// end warmup run
 		
 		// begin probing

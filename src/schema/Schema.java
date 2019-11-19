@@ -31,7 +31,7 @@ public class Schema {
         } else {
             // construct a default schema
             for (int i=0; i<MongoApp.num_attributes; i++) {
-                attributes.add(MongoApp.ATTR_PREFIX+"i");
+                attributes.add(MongoApp.ATTR_PREFIX+i);
             }
         }
     }
@@ -43,7 +43,7 @@ public class Schema {
     public Schema(int numAttr) {
         this.attributes = new ArrayList<>();
         for (int i=0; i<numAttr; i++) {
-            attributes.add(MongoApp.ATTR_PREFIX+"i");
+            attributes.add(MongoApp.ATTR_PREFIX+i);
         }
     }
 

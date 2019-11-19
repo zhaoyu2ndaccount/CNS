@@ -125,17 +125,21 @@ public class MongoAppClient extends ReconfigurableAppClientAsync<Request> implem
 				Integer.valueOf(System.getProperty("numPartition")):DEFAULT_NUM_PARTITION;
 		numReplica = (System.getProperty("numReplica")!=null)?
 				Integer.valueOf(System.getProperty("numReplica")):DEFAULT_NUM_REPLICA;
-				
+
+
+		if (System.getProperty("schema")!= null) {
+			schema = new Schema(System.getProperty("schema"));
+		} else if (System.getProperty("numAttr")!= null) {
+			int numAttr = Integer.parseInt(System.getProperty("numAttr"));
+			schema = new Schema(numAttr);
+		} else {
+			schema = new Schema(MongoApp.num_attributes);
+		}
+
 		// set scheme
 		String schemeName = System.getProperty("scheme");
 		if (schemeName == null) {
 			schemeName = DEFAULT_SCHEME_NAME;
-		}
-
-		if (System.getProperty("schema")!= null) {
-			schema = new Schema(System.getProperty("schema"));
-		} else {
-			schema = new Schema(MongoApp.num_attributes);
 		}
 
 		// initialize partitioning scheme
@@ -146,7 +150,9 @@ public class MongoAppClient extends ReconfigurableAppClientAsync<Request> implem
 		} catch (ClassNotFoundException | InstantiationException | IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException e) {
 			e.printStackTrace();
 		}
-		
+
+
+
 		System.out.println("Initialize all parameters: numPartition="+numPartition+", numReplica="+numReplica+"");
 		// initialize server map
 		allGroups = getGroupForAllServiceNames();
@@ -248,8 +254,12 @@ public class MongoAppClient extends ReconfigurableAppClientAsync<Request> implem
 		return scheme.getGroupForAllServiceNames(numPartition, numReplica, PaxosConfig.getActives());
 	}
 	
-	protected String getServiceName(Document bson) {
+	protected static String getServiceName(Document bson) {
 		return scheme.getServiceName(bson, allServiceNames);
+	}
+
+	protected static List<Integer> getPartitionsFromQuery(BasicDBObject bson) {
+		return scheme.getPartitionsForSearch(bson);
 	}
 
 	protected List<InetSocketAddress> getServiceGroup(Document bson) {

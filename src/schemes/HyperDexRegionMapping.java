@@ -4,7 +4,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.mongodb.BasicDBObject;
 import mongo.MongoApp;
-import mongo.MongoAppDimensionalitySetupClient;
 import org.bson.Document;
 import schema.Schema;
 
@@ -19,7 +18,7 @@ import java.util.*;
  */
 public class HyperDexRegionMapping extends BasicScheme {
 
-    static List<String> attributes;
+    List<String> attributes;
 
     int interval = MongoApp.INTERVAL;
     int num_buckets = MongoApp.NUM_BUCKETS;
@@ -32,8 +31,8 @@ public class HyperDexRegionMapping extends BasicScheme {
      */
     public HyperDexRegionMapping(int numPartitions, int numReplicas) {
         super(numPartitions, numReplicas);
-        attributes = Schema.attributes;
-
+        this.attributes = Schema.attributes;
+        System.out.println("attributes:" + attributes);
     }
 
     /**
@@ -49,23 +48,28 @@ public class HyperDexRegionMapping extends BasicScheme {
      * @param query
      * @return the set of nodes to query
      */
-    private Set<Integer> getNodesFromQuery(Document query){
+    private Set<Integer> getNodesFromQuery(BasicDBObject query){
+
         List<String> regions = new ArrayList<>();
         regions.add("");
+
         for (int i=0; i<attributes.size(); i++){
             String attr = attributes.get(i);
             List<String> new_regions = new ArrayList<>();
 
-            BasicDBObject range = query.get(attr, null);
+            BasicDBObject range = (BasicDBObject) query.getOrDefault(attr, null);
+
+            // System.out.println(i+"-th attribute: "+attr+", range:"+range);
+
             int lower_bound = 0;
             int upper_bound = num_buckets;
 
             if (range != null){
-                lower_bound = range.getInt("$gte");
-                upper_bound = range.getInt("$lt");
+                lower_bound = range.getInt("$gte")/interval;
+                upper_bound = range.getInt("$lt")/interval;
             }
 
-            for (int k=lower_bound/interval; k<upper_bound/interval+1; k++){
+            for (int k=lower_bound; k<upper_bound+1; k++){
                 for (String r : regions) {
                     new_regions.add(r+k+"-");
                 }
@@ -87,7 +91,7 @@ public class HyperDexRegionMapping extends BasicScheme {
         assert(bson.containsKey(MongoApp.KEYS.QUERY.toString()));
         Document query = (Document) bson.get(MongoApp.KEYS.QUERY.toString());
 
-        Set<Integer> nodes = getNodesFromQuery(query);
+
 
         return null;
     }
@@ -106,15 +110,6 @@ public class HyperDexRegionMapping extends BasicScheme {
         return actives;
     }
 
-
-    @Override
-    public String getServiceName(Document bson, Map<Integer, String> map){
-        String key = bson.getString(MongoApp.KEYS.KEY.toString());
-        byte[] b = key.getBytes();
-        int retval = b.hashCode();
-
-        return null;
-    }
 
     @Override
     public Map<Integer, List<InetSocketAddress>> getGroupForAllServiceNames(int numPartition, int numReplica,
@@ -142,6 +137,17 @@ public class HyperDexRegionMapping extends BasicScheme {
         }
 
         return map;
+    }
+
+    @Override
+    public List<Integer> getPartitionsForSearch(BasicDBObject query) {
+        // System.out.println(">>>>>>>>> Query:"+query);
+
+        Set<Integer> result = getNodesFromQuery( query );
+
+        // System.out.println(">>>>>>>>> Result:" + result);
+        return new ArrayList<>( result );
+
     }
 
     /**

@@ -7,6 +7,7 @@ import java.util.Map;
 import org.bson.Document;
 
 import com.mongodb.BasicDBObject;
+import org.json.JSONObject;
 
 /**
  * @author gaozy
@@ -20,6 +21,12 @@ public interface PartitionScheme {
 	 * @return a GigaPaxos service name
 	 */
 	public String getServiceName(Document bson, Map<Integer, String> map);
+
+	/**
+	 * @param query
+	 * @return
+	 */
+	public List<Integer> getPartitionsForSearch(BasicDBObject query);
 
 	/**
 	 *
